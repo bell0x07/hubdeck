@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hubdeck"
+version = "0.1.0"
+description = "Stream-Deck-style tool for the Cooler Master MasterHub 15-key screen module"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE.md"]
+dependencies = [
+    "hidapi>=0.14",
+    "pillow>=10.1",
+    "pyyaml>=6",
+    "pydantic>=2.6",
+    "pystray>=0.19",
+    "psutil>=5.9",
+    "pycaw>=20240316; sys_platform == 'win32'",
+    "comtypes>=1.4; sys_platform == 'win32'",
+]
+
+[project.urls]
+Homepage = "https://github.com/bell0x07/hubdeck"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+hubdeck = "hubdeck.cli:main"
+
+[project.gui-scripts]
+hubdeck-tray = "hubdeck.tray:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hubdeck = ["assets/*.yaml", "assets/tabler/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
