@@ -1,0 +1,12 @@
+{
+  "client_id": "YOUR_DISCORD_APP_CLIENT_ID",
+  "client_secret": "YOUR_DISCORD_APP_CLIENT_SECRET",
+  "redirect_uri": "http://localhost",
+  "mute_key": 1,
+  "deafen_key": 2,
+  "hold_mute_key": null,
+  "rotate": 0,
+  "brightness": null,
+  "reassert_seconds": 5,
+  "icons": {}
+}
