@@ -1,0 +1,79 @@
+# hubdeck example config
+# Lives in %APPDATA%\hubdeck\config.yaml. Saved changes apply immediately.
+# Key numbers 1-15: run `hubdeck test` to see which is which.
+# Icons: any Tabler icon name (https://tabler.io/icons) - search with `hubdeck icons <word>`.
+
+device:
+  ownership: shared          # shared: only touch keys used below (MasterCanvas keeps the rest)
+                             # exclusive: hubdeck owns all 15 keys, unused ones are blank
+  rotate: 0                  # 0 / 90 / 180 / 270 if faces look sideways
+  brightness: null           # 0-100, or null to leave it alone
+  reassert_seconds: 5        # repaint our keys this often in case MasterCanvas draws over them (0 = off)
+
+defaults:
+  long_press_ms: 500
+  double_press_ms: 250
+  style: {bg: "#19191e", fg: "#3cc86e", label_color: "#ffffff"}
+
+# Plugins that need settings. Secrets go in secrets.yaml next to this file:
+#   discord_client_secret: "..."
+# plugins:
+#   discord:
+#     client_id: !secret discord_client_id
+#     client_secret: !secret discord_client_secret
+
+start_page: main
+pages:
+  main:
+    keys:
+      1:
+        action: {page: media}               # open a folder page
+        face: {icon: music, label: Media}
+      2:
+        action: {keys: "ctrl+shift+esc"}     # press = keystroke
+        on_long_press: {run: "taskmgr.exe"}  # hold 0.5 s = something else
+        face: {icon: keyboard, label: TaskMgr}
+      3:
+        action: {open: "https://tabler.io/icons"}
+        face: {icon: world, label: Icons}
+      4:
+        face: {text: "{system.time:%H:%M}", label: "{system.time:%a %d}"}   # live text
+      5:
+        face: {text: "{system.cpu:.0f}%", label: CPU}
+      6:
+        action: {audio.toggle_mute: microphone}
+        state: audio.mic_muted
+        face:    {icon: microphone, label: MIC}
+        face_on: {icon: microphone-off, label: MUTED, bg: "#c81e28", fg: white}
+
+      # Discord (needs the plugins.discord section above):
+      # 11:
+      #   action: discord.toggle_mute
+      #   state: discord.muted
+      #   face:         {icon: microphone, label: LIVE}
+      #   face_on:      {icon: microphone-off, label: MUTED, bg: "#c81e28", fg: white}
+      #   face_unknown: {icon: plug-connected-x, label: NO DC, bg: "#c81e28", fg: white}
+      # 12:
+      #   on_down: discord.hold_mute_start
+      #   on_up: discord.hold_mute_end
+      #   state: discord.holding
+      #   face:    {icon: hand-stop, label: HOLD}
+      #   face_on: {icon: microphone-off, label: HELD, bg: "#c81e28", fg: white}
+
+  media:
+    keys:
+      1: {action: page.back, face: {icon: arrow-left, label: Back}}
+      2: {action: {media: prev}, face: {icon: player-skip-back}}
+      3: {action: {media: play_pause}, face: {icon: player-play}}
+      4: {action: {media: next}, face: {icon: player-skip-forward}}
+      5:
+        action: {audio.volume_down: 5}
+        face: {icon: volume-2, label: "{audio.volume}%"}
+      6:
+        action: {audio.volume_up: 5}
+        face: {icon: volume, label: "{audio.volume}%"}
+      7:
+        action: audio.toggle_mute
+        state: audio.speaker_muted
+        face:    {icon: volume, label: SOUND}
+        face_on: {icon: volume-off, label: MUTED, bg: "#c81e28", fg: white}
