@@ -1,11 +1,16 @@
-# Discord client ID/secret live here
+# User config lives in %APPDATA%\hubdeck, but never commit secrets if one ends up here
+secrets.yaml
 config.json
-# OAuth token, in case token_file is pointed inside the project
-token.json
-# Personal setup notes
+*token.json
+# Personal notes / progress tracking
 README.bell.md
+TODO.md
 
 # Python
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
