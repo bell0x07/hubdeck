@@ -1,2 +1,0 @@
-hidapi>=0.14
-pillow>=10.1
