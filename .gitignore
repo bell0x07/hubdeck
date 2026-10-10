@@ -1,0 +1,11 @@
+# Discord client ID/secret live here
+config.json
+# OAuth token, in case token_file is pointed inside the project
+token.json
+# Personal setup notes
+README.bell.md
+
+# Python
+.venv/
+__pycache__/
+*.pyc
