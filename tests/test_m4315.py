@@ -18,6 +18,13 @@ def test_image_reports_chunking():
     assert b"".join(r[8:8 + int.from_bytes(r[4:6], "little")] for r in reports) == jpeg
 
 
+def test_generic_chunker_for_dial_picture():
+    from hubdeck.device.hid import build_chunked_reports
+    reports = build_chunked_reports(0x45, bytes(700))
+    assert [r[:2] for r in reports] == [b"\x02\x45"] * 3
+    assert [r[7] for r in reports] == [0, 0, 1] and all(r[6] == 0 for r in reports)
+
+
 def test_parse_key_report():
     payload = bytes([0x02, 0x0F] + [0] * 10 + [1] + [0] * 4)
     data = bytes([0x01, 0x34]) + len(payload).to_bytes(2, "little") + payload

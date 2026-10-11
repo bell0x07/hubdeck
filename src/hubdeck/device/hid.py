@@ -47,9 +47,10 @@ MODULE_TYPES: dict[int, ModuleType] = {t.pid: t for t in (
     ModuleType(0x01FE, "M4315", "15xKey w/ IPS", "screen", ("keys", "m4315"), out_len=320, tag_base=0x34,
                deny_feature=frozenset({0x35, 0x39, 0x3C, 0x3D, 0x3E}), deny_output=frozenset({0x34, 0x38}),
                safe_feature=frozenset({0x34, 0x36, 0x37, 0x3A}), safe_output=frozenset({0x36})),
-    # Dial: only software mode is known; its other command IDs are still being reverse engineered
+    # Dial command IDs from the vendor DLL CoolTEK_SDK_CM_M131E_V03.02.00 (see docs/protocol/m131e.md)
     ModuleType(0x0206, "M131E", "1xDial w/ IPS", "screen", ("dial", "m131e"), out_len=320, tag_base=0x44,
-               safe_feature=frozenset({0x49})),
+               deny_feature=frozenset({0x45, 0x48, 0x4B, 0x4C, 0x4D}), deny_output=frozenset({0x44, 0x47}),
+               safe_feature=frozenset({0x44, 0x46, 0x49}), safe_output=frozenset({0x45, 0x48, 0x49})),
     ModuleType(0x01F6, "M0064", "Base 4x6", aliases=("base", "m0064"), **_M0),
     ModuleType(0x0202, "M003K", "3xKnob", aliases=("knobs", "knob", "m003k"), **_M0),
     ModuleType(0x0204, "M032LE", "2xRoller", aliases=("rollers", "roller", "m032le"), **_M0),
@@ -84,6 +85,20 @@ def check_write(mtype: ModuleType, kind: str, data: bytes, unverified: bool = Fa
     if cmd not in safe and not unverified:
         raise UnsafeCommand(f"{mtype.code} {kind} command 0x{cmd:02x} is not verified as safe; "
                             "only send it when it comes from a capture or the vendor SDK (--unverified)")
+
+
+def build_chunked_reports(cmd: int, data: bytes, index: int = 0, report_len: int = 320) -> list[bytes]:
+    """Screen-family image upload: `02 <cmd> <chunk u16> <len u16> <index> <last> <data>`
+    in output reports of report_len bytes (8-byte header)."""
+    chunk_max = report_len - 8
+    reports = []
+    for chunk, offset in enumerate(range(0, len(data), chunk_max)):
+        part = data[offset:offset + chunk_max]
+        last = offset + chunk_max >= len(data)
+        header = bytes([0x02, cmd]) + chunk.to_bytes(2, "little") + len(part).to_bytes(2, "little") \
+            + bytes([index, 1 if last else 0])
+        reports.append((header + part).ljust(report_len, b"\0"))
+    return reports
 
 
 @dataclass(frozen=True)

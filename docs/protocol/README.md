@@ -4,6 +4,7 @@ These are the facts hubdeck relies on, with one file per module. Each fact is ta
 
 - **[hw]**: verified on real hardware by this project
 - **[up]**: taken from upstream docs and not re-verified yet
+- **[dll]**: read from the disassembly of the vendor SDK DLL, not yet confirmed on hardware
 - **[hyp]**: a hypothesis, still to be confirmed
 
 ## Credits
@@ -48,7 +49,8 @@ hubdeck refuses to send these commands. The list is hard-coded in `src/hubdeck/d
 - **M0 output commands:** `0x2a` firmware update, `0x2b` set serial, `0x31` save factory data, `0x49` firmware recovery, `0x4a` factory reset.
 - **15-key feature commands:** `0x35` set serial, `0x39` firmware recovery, `0x3c` save factory data, `0x3d` factory reset, `0x3e` animation recovery.
 - **15-key output commands:** `0x34` firmware update, `0x38` save screen picture.
-- **Dial:** only commands known to be safe (software mode `0x49`) can be sent without `--unverified`. Its own denylist will be filled in once the vendor DLL shows its command IDs.
+- **Dial feature commands:** `0x45` set serial, `0x48` firmware recovery, `0x4b` save factory data, `0x4c` factory reset, `0x4d` animation recovery.
+- **Dial output commands:** `0x44` firmware update, `0x47` save screen picture.
 
 Feature `0x34` on the 15-key module is **brightness** and is safe. The same number means firmware update only as an output command.
 
