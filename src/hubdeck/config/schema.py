@@ -254,6 +254,109 @@ class Page(_Model):
         return v
 
 
+LED_MODES = ("off", "static", "breathing", "strobe", "spring", "cycling", "random", "wave", "water", "rainbow")
+LIGHT_ZONES = {"base": 1, "knobs": 3, "faders": 5}
+
+
+class Animate(_Model):
+    """Software animation: hubdeck computes the colour itself (~30 updates/s)."""
+    effect: Literal["pulse", "blink", "cycle"]
+    colors: list[str] = []          # pulse/blink: [on, off] (off defaults to black); cycle: 2+ colours
+    period: float = Field(default=2.0, gt=0.1)   # seconds per cycle
+
+    @field_validator("colors")
+    @classmethod
+    def _colors(cls, v):
+        for c in v:
+            _check_color(c)
+        return v
+
+    @model_validator(mode="after")
+    def _enough(self):
+        if not self.colors:
+            raise ValueError("animate needs 'colors'")
+        if self.effect == "cycle" and len(self.colors) < 2:
+            raise ValueError("animate effect 'cycle' needs at least 2 colors")
+        return self
+
+
+class Light(_Model):
+    mode: Literal[LED_MODES] | None = None
+    color: str | None = None
+    brightness: int | Literal["value"] | None = None    # "value": follow the control's turn/fader target
+    min_brightness: int = Field(default=10, ge=0, le=100)
+    animate: Animate | None = None
+
+    @field_validator("color")
+    @classmethod
+    def _color(cls, v):
+        return _check_color(v)
+
+    @field_validator("brightness")
+    @classmethod
+    def _range(cls, v):
+        if isinstance(v, int) and not 0 <= v <= 100:
+            raise ValueError("brightness must be 0-100 or 'value'")
+        return v
+
+
+class LightZone(Light):
+    state: str | None = None
+    on: Light | None = None          # used while `state` is truthy
+    unknown: Light | None = None     # used while `state` is unknown
+
+    @field_validator("state")
+    @classmethod
+    def _state_name(cls, v):
+        if v is not None and not re.fullmatch(NAME_RE, v):
+            raise ValueError(f"state {v!r} must look like plugin.state (e.g. discord.muted)")
+        return v
+
+
+class Lighting(_Model):
+    base: LightZone | None = None
+    knobs: dict[str, LightZone] = {}     # "all" and/or 1-3
+    faders: dict[str, LightZone] = {}    # "all" and/or 1-5
+
+    @field_validator("knobs", "faders", mode="before")
+    @classmethod
+    def _keys(cls, v, info):
+        count = LIGHT_ZONES[info.field_name]
+        out = {}
+        for k, zone in (v or {}).items():
+            key = str(k).lower()
+            if key != "all" and not (key.isdigit() and 1 <= int(key) <= count):
+                raise ValueError(f"{info.field_name}: use 'all' or 1-{count}, got {k!r}")
+            out[key] = zone
+        return out
+
+    @field_validator("base")
+    @classmethod
+    def _base_has_no_value(cls, v):
+        for light in (v, v and v.on, v and v.unknown):
+            if light is not None and light.brightness == "value":
+                raise ValueError("base: brightness 'value' needs a knob or fader")
+        return v
+
+    def zones(self) -> list[tuple[str, int, LightZone]]:
+        """(module, 0-based index, merged zone) for every configured zone; 'all' merged under the number."""
+        out = []
+        if self.base:
+            out.append(("base", 0, self.base))
+        for kind in ("knobs", "faders"):
+            section = getattr(self, kind)
+            if not section:
+                continue
+            for i in range(LIGHT_ZONES[kind]):
+                parts = [z for z in (section.get("all"), section.get(str(i + 1))) if z is not None]
+                if parts:
+                    merged = {}
+                    for z in parts:
+                        merged.update(z.model_dump(exclude_unset=True))
+                    out.append((kind, i, LightZone.model_validate(merged)))
+        return out
+
+
 class Device(_Model):
     ownership: Literal["shared", "exclusive"] = "shared"
     rotate: Literal[0, 90, 180, 270] = 0
@@ -266,12 +369,14 @@ class Defaults(_Model):
     long_press_ms: int = Field(default=500, ge=100)
     double_press_ms: int = Field(default=250, ge=50)
     style: Style = Style(bg="#19191e", fg="#3cc86e", label_color="#ffffff")
+    led_gamma: float = Field(default=2.2, ge=1.0, le=4.0)   # LED colour/brightness correction (1 = off)
 
 
 class Config(_Model):
     device: Device = Device()
     defaults: Defaults = Defaults()
     plugins: dict[str, dict[str, Any]] = {}
+    lighting: Lighting = Lighting()
     start_page: str = "main"
     pages: dict[str, Page] = {}
 
@@ -346,6 +451,7 @@ class Config(_Model):
         for name in ("dial", "knobs", "rollers", "faders"):
             if any(getattr(p, name) for p in self.pages.values()):
                 kinds.add(name)
+        kinds.update(kind for kind, _, _ in self.lighting.zones())
         return kinds
 
     def state_refs(self) -> set[tuple[str, str]]:
@@ -357,6 +463,9 @@ class Config(_Model):
                 for s in (f.text, f.label):
                     if s:
                         refs.update((p, n) for p, n, _ in TEMPLATE_RE.findall(s))
+        for _, _, zone in self.lighting.zones():
+            if zone.state:
+                refs.add(tuple(zone.state.split(".", 1)))
         return refs
 
     def used_plugins(self) -> set[str]:

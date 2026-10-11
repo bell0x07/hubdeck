@@ -92,6 +92,14 @@ def check_references(cfg: Config) -> list[str]:
                             f"(available: {', '.join(plugin.values) or 'none'})")
         elif err := plugin.check_value(n, arg):
             problems.append(f"{where}: {err}")
+    for kind, idx, zone in cfg.lighting.zones():
+        for ref in [zone.state] if zone.state else []:
+            p, n = ref.split(".", 1)
+            if p in REGISTRY and n not in REGISTRY[p].states:
+                problems.append(f"lighting.{kind}: {p} has no state {n!r} "
+                                f"(available: {', '.join(REGISTRY[p].states) or 'none'})")
+        if (zone.on or zone.unknown) and not zone.state:
+            problems.append(f"lighting.{kind}: 'on'/'unknown' need a 'state' to switch on")
     for where, kd in cfg.iter_defs():
         has_target = isinstance(kd, ControlDef) and kd.turn is not None and kd.turn.target is not None
         for f in kd.faces():
