@@ -9,7 +9,7 @@ A Stream-Deck-style controller for the whole **Cooler Master MasterHub** family:
 | **3 knobs, 2 rollers, 5 faders** | Volumes (system, microphone, per app) or any action, with knob and fader LEDs that can follow the value. |
 | **Base** | RGB lighting that reacts to state, for example red and breathing while you're muted. |
 
-Actions cover keystrokes, media keys, launching apps, system and per-app audio, and Discord mute/deafen/hold-to-mute. Controls can be grouped into pages. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
+Actions cover keystrokes, media keys, launching apps, system and per-app audio, Discord mute/deafen/hold-to-mute, and Microsoft Teams meeting controls. Controls can be grouped into pages. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
 
 It runs on **Windows** and **macOS**. This is an unofficial tool, tested with real hardware on Windows 11 and macOS. The protocol notes, with sources and what's verified, are in [docs/protocol/](docs/protocol/README.md).
 
@@ -358,6 +358,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `audio` | `toggle_mute` / `mute` / `unmute` (speakers or microphone), `volume_up`, `volume_down`, `set_volume`, `set_output` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
 | `system` | none | `time`, `cpu`, `ram` | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
+| `teams` | `toggle_mute`, `mute`, `unmute`, `toggle_video`, `video_on`, `video_off`, `toggle_hand`, `toggle_blur`, `react` (`like`, `love`, `applause`, `laugh`, `wow`), `toggle_chat`, `stop_sharing`, `leave` | `in_meeting`, `muted`, `video_on`, `hand_raised`, `blurred`, `recording`, `sharing`, `unread`, `connected`, `paired` | none |
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
 
@@ -374,6 +375,27 @@ The Discord plugin needs a Discord app. You create it once, for your own account
 3. Add the redirect `http://localhost` and click **Save Changes**. It must be the **only** redirect. If there are none, or more than one, authorization fails with `Missing "redirect_uri" in request`.
 
 The first time hubdeck connects, Discord shows an authorization popup. The login token is then kept in `discord_token.json` in the hubdeck folder. Voice RPC only works for the app's owner and for whitelisted testers.
+
+### Microsoft Teams setup
+
+The Teams plugin talks to the new Teams desktop app on the same computer, on Windows and macOS, through Teams' third-party app API.
+
+1. In Teams, open **Settings › Privacy**, click **Manage API** under *Third-party app API*, and turn on **Enable API**. If it's greyed out, your organisation has turned it off.
+2. Join a meeting (a call with yourself works) and press any Teams key. Teams asks whether to allow **hubdeck**: click **Allow**. Press the key again if nothing happened.
+
+Teams then hands hubdeck a token, which it keeps in `teams_token.json` in the hubdeck folder; to pair again, delete that file. Teams only reports a meeting's state while you're in one, so `teams.muted` and the others are unknown outside meetings: `face_unknown` sets the face for that time. A mute key with a red Base while muted:
+
+```yaml
+keys:
+  1:
+    action: teams.toggle_mute
+    state: teams.muted
+    face: {icon: microphone, label: LIVE}
+    face_on: {icon: microphone-off, label: MUTED, bg: "#c81e28"}
+    face_unknown: {icon: brand-teams, label: TEAMS}
+lighting:
+  base: {color: "#3cc86e", state: teams.muted, on: {color: "#c81e28", mode: breathing}}
+```
 
 ## Shortcuts, scripts and automation
 

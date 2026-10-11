@@ -33,3 +33,7 @@ def log_path() -> Path:
 
 def discord_token_path() -> Path:
     return app_dir() / "discord_token.json"
+
+
+def teams_token_path() -> Path:
+    return app_dir() / "teams_token.json"

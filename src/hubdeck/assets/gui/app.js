@@ -38,6 +38,14 @@ const ACTIONS = [
     ["toggle_mute", "Mute / unmute"], ["toggle_deafen", "Deafen / undeafen"], ["mute", "Mute"], ["unmute", "Unmute"],
     ["deafen", "Deafen"], ["undeafen", "Undeafen"],
   ].map(([a, label]) => ({ label, make: () => `discord.${a}`, is: x => x.name === `discord.${a}` })) },
+  { group: "Teams", items: [
+    ...[["toggle_mute", "Mute / unmute"], ["toggle_video", "Camera on / off"], ["toggle_hand", "Raise / lower hand"],
+      ["toggle_blur", "Background blur on / off"], ["toggle_chat", "Show / hide chat"], ["stop_sharing", "Stop sharing"],
+      ["leave", "Leave the meeting"], ["mute", "Mute"], ["unmute", "Unmute"], ["video_on", "Camera on"], ["video_off", "Camera off"],
+    ].map(([a, label]) => ({ label, make: () => `teams.${a}`, is: x => x.name === `teams.${a}` })),
+    ...["like", "love", "applause", "laugh", "wow"].map(r => ({ label: `React: ${r}`, make: () => ({ "teams.react": r }),
+      is: x => x.name === "teams.react" && x.arg === r })),
+  ] },
   { group: "Open & run", items: [
     { label: "Open a website", arg: { kind: "text", placeholder: "https://…" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open" && /^https?:/i.test(a.arg || ""), get: a => a.arg },
     { label: "Open an app, file or folder", arg: { kind: "text", placeholder: () => IS_MAC() ? "Spotify, or /Applications/…" : "C:\\Program Files\\…\\app.exe" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open", get: a => a.arg },
@@ -61,6 +69,11 @@ const STATES = {
   "discord.muted": "Discord is muted", "discord.deafened": "Discord is deafened", "discord.holding": "hold-to-mute is held",
   "discord.connected": "Discord is connected", "audio.mic_muted": "the microphone is muted",
   "audio.speaker_muted": "the speakers are muted",
+  "teams.muted": "you're muted in Teams", "teams.video_on": "your Teams camera is on",
+  "teams.hand_raised": "your hand is raised in Teams", "teams.in_meeting": "you're in a Teams meeting",
+  "teams.sharing": "you're sharing in Teams", "teams.recording": "the Teams meeting is recorded",
+  "teams.unread": "the Teams chat has unread messages", "teams.blurred": "your Teams background is blurred",
+  "teams.connected": "Teams is connected",
 };
 const VALUES = { "audio.volume": "System volume", "audio.mic_volume": "Microphone volume", "audio.app_volume": "Volume of one app" };
 
@@ -74,6 +87,16 @@ const KEY_PRESETS = [
     face_unknown: { icon: "plug-connected-x", label: "NO DC", bg: RED, fg: "white" } } },
   { label: "Discord hold to mute", raw: { on_down: "discord.hold_mute_start", on_up: "discord.hold_mute_end", state: "discord.holding",
     face: { icon: "hand-stop", label: "HOLD" }, face_on: { icon: "microphone-off", label: "HELD", bg: RED, fg: "white" } } },
+  { label: "Teams mute", raw: { action: "teams.toggle_mute", state: "teams.muted",
+    face: { icon: "microphone", label: "LIVE" }, face_on: { icon: "microphone-off", label: "MUTED", bg: RED, fg: "white" },
+    face_unknown: { icon: "brand-teams", label: "TEAMS" } } },
+  { label: "Teams camera", raw: { action: "teams.toggle_video", state: "teams.video_on",
+    face: { icon: "video-off", label: "CAM OFF" }, face_on: { icon: "video", label: "CAM ON", bg: RED, fg: "white" },
+    face_unknown: { icon: "brand-teams", label: "TEAMS" } } },
+  { label: "Teams raise hand", raw: { action: "teams.toggle_hand", state: "teams.hand_raised",
+    face: { icon: "hand-stop", label: "HAND" }, face_on: { icon: "hand-stop", label: "RAISED", bg: "#d89614", fg: "white" },
+    face_unknown: { icon: "brand-teams", label: "TEAMS" } } },
+  { label: "Teams leave", raw: { action: "teams.leave", face: { icon: "phone-off", label: "LEAVE", bg: RED, fg: "white" } } },
   { label: "Mute microphone", raw: { action: { "audio.toggle_mute": "microphone" }, state: "audio.mic_muted",
     face: { icon: "microphone", label: "MIC" }, face_on: { icon: "microphone-off", label: "MUTED", bg: RED, fg: "white" } } },
   { label: "Mute speakers", raw: { action: "audio.toggle_mute", state: "audio.speaker_muted",
