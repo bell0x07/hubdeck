@@ -15,6 +15,10 @@ GESTURES = ("press", "down", "up", "long_press", "double_press")
 
 # {plugin.state} or {plugin.state:format} inside face text / label
 TEMPLATE_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)(?::([^{}]*))?\}")
+# {value} or {value:format}: the current value of the control's turn target
+VALUE_RE = re.compile(r"\{value(?::([^{}]*))?\}")
+NAME_RE = r"[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*"
+CONTROL_COUNTS = {"knobs": 3, "rollers": 2, "faders": 5}
 
 # short action names: {page: media}, {keys: "ctrl+c"}, {run: "notepad"}, ...
 ALIASES: dict[str, tuple[str, str]] = {
@@ -96,6 +100,7 @@ class Face(Style):
     label: str | None = None
     text: str | None = None
     font_size: int | None = Field(default=None, ge=4, le=72)
+    gauge: bool = False   # ring showing the control's {value} (0-100); for the dial
 
     @model_validator(mode="after")
     def _known_icon(self):
@@ -152,23 +157,108 @@ class KeyDef(_Model):
         return [f for f in (self.face, self.face_on, self.face_unknown) if f is not None]
 
 
+class TurnDef(_Model):
+    """What turning a dial/knob/roller does: adjust a plugin value, or run actions per step."""
+    target: str | None = None          # plugin.value, e.g. audio.volume
+    arg: Any = None                    # e.g. the app for audio.app_volume
+    step: float = Field(default=2, gt=0)
+    invert: bool = False
+    cw: list[Action] = []              # actions per clockwise / up step
+    ccw: list[Action] = []
+
+    @field_validator("cw", "ccw", mode="before")
+    @classmethod
+    def _actions(cls, v):
+        return parse_actions(v)
+
+    @field_validator("target")
+    @classmethod
+    def _target_name(cls, v):
+        if v is not None and not re.fullmatch(NAME_RE, v):
+            raise ValueError(f"target {v!r} must look like plugin.value (e.g. audio.volume)")
+        return v
+
+    @model_validator(mode="after")
+    def _something(self):
+        if not self.target and not (self.cw or self.ccw):
+            raise ValueError("turn needs a 'target' (e.g. audio.volume) or 'cw'/'ccw' actions")
+        if self.target and (self.cw or self.ccw):
+            raise ValueError("use either 'target' or 'cw'/'ccw', not both")
+        return self
+
+
+class ControlDef(KeyDef):
+    """A dial, knob or roller: press gestures like a key, plus turning."""
+    turn: TurnDef | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _turn_shorthand(cls, data):
+        if isinstance(data, dict) and isinstance(data.get("turn"), str):
+            data = dict(data)
+            data["turn"] = {"target": data["turn"]}
+        return data
+
+    def all_actions(self) -> list[Action]:
+        extra = (self.turn.cw + self.turn.ccw) if self.turn else []
+        return super().all_actions() + extra
+
+    def press_actions(self) -> list[Action]:
+        return super().all_actions()
+
+
+class FaderDef(_Model):
+    target: str
+    arg: Any = None
+    invert: bool = False
+
+    @field_validator("target")
+    @classmethod
+    def _target_name(cls, v):
+        if not re.fullmatch(NAME_RE, v):
+            raise ValueError(f"target {v!r} must look like plugin.value (e.g. audio.volume)")
+        return v
+
+
+def _check_range(v: dict, count: int, what: str):
+    bad = [k for k in v if not 1 <= k <= count]
+    if bad:
+        raise ValueError(f"{what} numbers must be 1-{count}, got {bad}")
+    return v
+
+
 class Page(_Model):
     keys: dict[int, KeyDef] = {}
+    dial: ControlDef | None = None
+    knobs: dict[int, ControlDef] = {}
+    rollers: dict[int, ControlDef] = {}
+    faders: dict[int, FaderDef] = {}
     match: dict[str, Any] | None = None  # reserved: switch to this page when an app is focused
 
     @field_validator("keys")
     @classmethod
     def _key_range(cls, v):
-        bad = [k for k in v if not 1 <= k <= KEY_COUNT]
-        if bad:
-            raise ValueError(f"key numbers must be 1-{KEY_COUNT}, got {bad}")
+        return _check_range(v, KEY_COUNT, "key")
+
+    @field_validator("knobs", "rollers", "faders")
+    @classmethod
+    def _control_range(cls, v, info):
+        return _check_range(v, CONTROL_COUNTS[info.field_name], info.field_name[:-1])
+
+    @field_validator("rollers")
+    @classmethod
+    def _rollers_cannot_press(cls, v):
+        for num, cd in v.items():
+            if cd.press_actions():
+                raise ValueError(f"roller {num}: rollers can't be pressed; only 'turn' is supported")
         return v
 
 
 class Device(_Model):
     ownership: Literal["shared", "exclusive"] = "shared"
     rotate: Literal[0, 90, 180, 270] = 0
-    brightness: int | None = Field(default=None, ge=0, le=100)
+    brightness: int | None = Field(default=None, ge=0, le=100)        # key module backlight
+    dial_brightness: int | None = Field(default=None, ge=0, le=100)   # dial backlight
     reassert_seconds: float = Field(default=5, ge=0)
 
 
@@ -188,11 +278,13 @@ class Config(_Model):
     @model_validator(mode="before")
     @classmethod
     def _single_page_shorthand(cls, data):
-        if isinstance(data, dict) and "keys" in data:
+        sections = ("keys", "dial", "knobs", "rollers", "faders")
+        if isinstance(data, dict) and any(s in data for s in sections):
             if "pages" in data:
-                raise ValueError("use either top-level 'keys' (single page) or 'pages', not both")
+                raise ValueError("use either top-level keys/dial/knobs/rollers/faders (single page) "
+                                 "or 'pages', not both")
             data = dict(data)
-            data["pages"] = {data.get("start_page", "main"): {"keys": data.pop("keys")}}
+            data["pages"] = {data.get("start_page", "main"): {s: data.pop(s) for s in sections if s in data}}
         return data
 
     @field_validator("plugins", mode="before")
@@ -204,7 +296,7 @@ class Config(_Model):
     @model_validator(mode="after")
     def _pages(self):
         if not self.pages:
-            raise ValueError("no keys defined: add a 'keys:' or 'pages:' section")
+            raise ValueError("nothing defined: add a 'keys:' or 'pages:' section")
         if self.start_page not in self.pages:
             raise ValueError(f"start_page {self.start_page!r} is not one of the pages: {', '.join(self.pages)}")
         return self
@@ -221,9 +313,44 @@ class Config(_Model):
             for num, kd in page.keys.items():
                 yield page_name, num, kd
 
+    def iter_defs(self):
+        """(config path, KeyDef or ControlDef) for every key, dial, knob and roller."""
+        for page_name, page in self.pages.items():
+            base = f"pages.{page_name}"
+            for num, kd in page.keys.items():
+                yield f"{base}.keys.{num}", kd
+            if page.dial:
+                yield f"{base}.dial", page.dial
+            for section in ("knobs", "rollers"):
+                for num, cd in getattr(page, section).items():
+                    yield f"{base}.{section}.{num}", cd
+
+    def iter_targets(self):
+        """(config path, target, arg) for every turn target and fader."""
+        for where, d in self.iter_defs():
+            if isinstance(d, ControlDef) and d.turn and d.turn.target:
+                yield f"{where}.turn", d.turn.target, d.turn.arg
+        for page_name, page in self.pages.items():
+            for num, fd in page.faders.items():
+                yield f"pages.{page_name}.faders.{num}", fd.target, fd.arg
+
+    def section(self, page: str, name: str):
+        """A page's dial/knobs/rollers/faders section; inherited from start_page when the page has none."""
+        own = getattr(self.pages[page], name)
+        return own if own else getattr(self.pages[self.start_page], name)
+
+    def used_modules(self) -> set[str]:
+        kinds = set()
+        if self.device.ownership == "exclusive" or any(p.keys for p in self.pages.values()):
+            kinds.add("keys")
+        for name in ("dial", "knobs", "rollers", "faders"):
+            if any(getattr(p, name) for p in self.pages.values()):
+                kinds.add(name)
+        return kinds
+
     def state_refs(self) -> set[tuple[str, str]]:
         refs = set()
-        for _, _, kd in self.iter_keys():
+        for _, kd in self.iter_defs():
             if kd.state:
                 refs.add(tuple(kd.state.split(".", 1)))
             for f in kd.faces():
@@ -234,6 +361,7 @@ class Config(_Model):
 
     def used_plugins(self) -> set[str]:
         names = set(self.plugins)
-        names.update(a.plugin for _, _, kd in self.iter_keys() for a in kd.all_actions())
+        names.update(a.plugin for _, kd in self.iter_defs() for a in kd.all_actions())
         names.update(p for p, _ in self.state_refs())
+        names.update(t.split(".", 1)[0] for _, t, _ in self.iter_targets())
         return names

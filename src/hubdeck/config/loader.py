@@ -11,7 +11,7 @@ import yaml
 from pydantic import ValidationError
 
 from .. import paths
-from .schema import TEMPLATE_RE, Config
+from .schema import TEMPLATE_RE, VALUE_RE, Config, ControlDef
 
 
 class ConfigError(Exception):
@@ -82,8 +82,22 @@ def check_references(cfg: Config) -> list[str]:
     for name, settings in cfg.plugins.items():
         if name in REGISTRY:
             problems += REGISTRY[name].check_config(settings)
-    for page, num, kd in cfg.iter_keys():
-        where = f"pages.{page}.keys.{num}"
+    for where, target, arg in cfg.iter_targets():
+        p, n = target.split(".", 1)
+        plugin = REGISTRY.get(p)
+        if plugin is None:
+            continue
+        if n not in plugin.values:
+            problems.append(f"{where}: {p} has no value {n!r} to adjust "
+                            f"(available: {', '.join(plugin.values) or 'none'})")
+        elif err := plugin.check_value(n, arg):
+            problems.append(f"{where}: {err}")
+    for where, kd in cfg.iter_defs():
+        has_target = isinstance(kd, ControlDef) and kd.turn is not None and kd.turn.target is not None
+        for f in kd.faces():
+            if not has_target and (f.gauge or any(VALUE_RE.search(s or "") for s in (f.text, f.label))):
+                problems.append(f"{where}: 'gauge' and {{value}} need a turn target to show")
+                break
         for a in kd.all_actions():
             plugin = REGISTRY.get(a.plugin)
             if plugin is None:
