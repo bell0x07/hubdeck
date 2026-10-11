@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- hubdeck's MSI, compiled by build.py with wixl (msitools 0.106 or newer) together with the
+     generated files.wxs, which lists the app's files as the AppFiles component group.
+
+     Per user, no admin rights: installs into %LOCALAPPDATA%\Programs\hubdeck, adds a Start menu
+     shortcut to the tray app and puts hubdeck.exe on the user's PATH. A newer or same-version
+     MSI replaces the installed one (development builds share their X.Y.Z); an older one refuses.
+     Never change the UpgradeCode: it's how Windows knows that a new MSI replaces this one. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="hubdeck" Manufacturer="bell0x07" Language="1033" Version="$(var.Version)"
+           UpgradeCode="35C5B696-6F87-456F-AA53-C91AB7172518">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser"
+             Description="hubdeck $(var.BuildVersion)"
+             Comments="Controller for the Cooler Master MasterHub modules"/>
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of hubdeck is already installed."/>
+    <Media Id="1" Cabinet="hubdeck.cab" EmbedCab="yes"/>
+
+    <Icon Id="hubdeck.ico" SourceFile="$(var.Icon)"/>
+    <Property Id="ARPPRODUCTICON" Value="hubdeck.ico"/>
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/bell0x07/hubdeck"/>
+    <Property Id="ARPNOMODIFY" Value="1"/>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="UserProgramsFolder" Name="Programs">
+          <Directory Id="INSTALLDIR" Name="hubdeck"/>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder"/>
+    </Directory>
+
+    <DirectoryRef Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="*">
+        <Shortcut Id="TrayShortcut" Name="hubdeck" Description="Controller for the Cooler Master MasterHub modules"
+                  Target="[INSTALLDIR]hubdeck-tray.exe" WorkingDirectory="INSTALLDIR"/>
+        <RegistryValue Root="HKCU" Key="Software\hubdeck\Installer" Name="StartMenuShortcut" Type="integer"
+                       Value="1" KeyPath="yes"/>
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="INSTALLDIR">
+      <!-- wixl 0.106 has Permanent backwards: "yes" writes the name as =-PATH, which is what
+           takes the folder off the PATH again on uninstall ("no" would leave it there). -->
+      <Component Id="UserPath" Guid="*">
+        <Environment Id="UserPath" Name="PATH" Value="[INSTALLDIR]" Action="set" Part="last" System="no"
+                     Permanent="yes"/>
+        <RegistryValue Root="HKCU" Key="Software\hubdeck\Installer" Name="Path" Type="integer" Value="1"
+                       KeyPath="yes"/>
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="hubdeck" Level="1">
+      <ComponentRef Id="StartMenuShortcut"/>
+      <ComponentRef Id="UserPath"/>
+      <ComponentGroupRef Id="AppFiles"/>
+    </Feature>
+  </Product>
+</Wix>
