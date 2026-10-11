@@ -93,9 +93,10 @@ def test_unknown_value_shows_empty_gauge(write):
 
 def test_knobs_turn_invert_and_press(write, recorder):
     eng, devs, _ = make(write)
+    # knob numbers follow reading order: 1 = top (module index 2), 2 = bottom-left (index 0)
+    devs["knobs"].push("turn", 2, 1)
     devs["knobs"].push("turn", 0, 1)
-    devs["knobs"].push("turn", 1, 1)
-    devs["knobs"].push("key", 0, True)
+    devs["knobs"].push("key", 2, True)
     eng.step()
     assert rec(recorder).calls == [("adjust", "level", None, 2), ("adjust", "app", "spotify.exe", -2),
                                    ("start", None)]
@@ -103,9 +104,10 @@ def test_knobs_turn_invert_and_press(write, recorder):
 
 def test_roller_runs_actions_per_step(write, recorder):
     eng, devs, _ = make(write)
-    devs["rollers"].push("turn", 0, 2)
-    devs["rollers"].push("turn", 0, -1)
-    devs["rollers"].push("turn", 1, 1)                    # roller 2 not configured
+    # roller 1 = left = module index 1
+    devs["rollers"].push("turn", 1, 2)
+    devs["rollers"].push("turn", 1, -1)
+    devs["rollers"].push("turn", 0, 1)                    # roller 2 (right) not configured
     eng.step()
     assert rec(recorder).calls == [("a", None), ("a", None), ("b", None)]
 
@@ -135,7 +137,7 @@ def test_sections_inherit_from_start_page_unless_overridden(write, recorder):
     eng, devs, clock = make(write)
     devs["keys"].press(0); eng.step(); eng.step()          # -> page "other"
     assert eng.current_page == "other"
-    devs["dial"].push("turn", 0, 1); devs["knobs"].push("turn", 0, 1)
+    devs["dial"].push("turn", 0, 1); devs["knobs"].push("turn", 2, 1)   # knob 1 = top
     eng.step()
     # dial overridden on "other", knobs inherited from "main"
     assert sorted(rec(recorder).calls, key=str) == [("adjust", "app", "chrome.exe", 2), ("adjust", "level", None, 2)]

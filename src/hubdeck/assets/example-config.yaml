@@ -6,9 +6,17 @@
 device:
   ownership: shared          # shared: only touch keys used below (MasterCanvas keeps the rest)
                              # exclusive: hubdeck owns all 15 keys, unused ones are blank
-  rotate: 0                  # 0 / 90 / 180 / 270 if faces look sideways
-  brightness: null           # 0-100, or null to leave it alone
   reassert_seconds: 5        # repaint our keys this often in case MasterCanvas draws over them (0 = off)
+
+# How each module is mounted (rotate: clockwise from its default position, 0/90/180/270)
+# and screen backlight (0-100, null = leave as is). Control numbers follow reading order
+# (left to right, top to bottom) in the mounted orientation.
+modules:
+  keys:    {rotate: 0, brightness: null}
+  dial:    {rotate: 0, brightness: null}
+  knobs:   {rotate: 0}     # default: one knob on top, two below
+  rollers: {rotate: 0}     # default: rollers side by side
+  faders:  {rotate: 0}     # default: faders vertical, 0 at the bottom
 
 defaults:
   long_press_ms: 500
