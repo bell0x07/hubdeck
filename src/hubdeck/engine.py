@@ -18,6 +18,8 @@ from .gestures import GestureTracker
 from .lighting import LightingController
 from .plugins import REGISTRY, Plugin, PluginContext
 from .plugins.base import value_state
+from .render.images import ImageStore
+from . import paths
 from .render.faces import BLANK, RenderFace, parse_color, render
 
 log = logging.getLogger("hubdeck")
@@ -69,6 +71,9 @@ class Engine:
         self._fader_caught: dict[int, bool] = {}
         self._fader_last: dict[int, int] = {}
         self.lighting = LightingController()
+        self.images = ImageStore(paths.app_dir() / "cache")
+        self._animating = False
+        self._next_anim = 0.0
         self._light_zones = []
         self._dirty = True
         self._force = False
@@ -140,6 +145,12 @@ class Engine:
             for i, ev in tracker.tick(now):
                 self._fire(kind, i, ev)
         self._drain_states()
+        if self.images.changed.is_set():          # a downloaded image is ready
+            self.images.changed.clear()
+            self._dirty = True
+        if self._animating and now >= self._next_anim:
+            self._next_anim = now + 1 / self.cfg.defaults.animation_fps
+            self._dirty = True
         if self._light_zones:
             for kind in self.lighting.update(self._light_zones, self.manager.devices, self.state.get,
                                              self._light_value, now, force=self._dirty,
@@ -197,6 +208,8 @@ class Engine:
         self._watch_targets()
         self._light_zones = cfg.lighting.zones()
         self.lighting.forget()
+        self.images.forget()
+        self._jpeg_cache.clear()
         for name, page in cfg.pages.items():
             if page.match:
                 log.warning("pages.%s.match: app-based page switching is not implemented yet; ignored", name)
@@ -408,6 +421,14 @@ class Engine:
                 merged.update(overlay.model_dump(exclude_unset=True))
         value = self.target_value(kd)
         gauge = merged.get("gauge", False)
+        image, frame = merged.get("image"), 0
+        if image:
+            loaded = self.images.get(image)
+            if loaded is None:
+                image = None                       # still downloading, or unusable: draw without it
+            elif loaded.animated:
+                frame = loaded.frame_at(self.clock())
+                self._animating = True
         return RenderFace(
             bg=parse_color(merged.get("bg", "#000000")),
             fg=parse_color(merged.get("fg", "#ffffff")),
@@ -419,6 +440,9 @@ class Engine:
             font_size=merged.get("font_size"),
             gauge=float(value) if gauge and value is not None else None,
             gauge_known=not gauge or value is not None,
+            image=image,
+            image_fit=merged.get("image_fit", "cover"),
+            frame=frame,
         )
 
     def resolve_face(self, num: int) -> RenderFace:
@@ -431,10 +455,14 @@ class Engine:
         key = (kind, face, rotate)
         data = self._jpeg_cache.get(key)
         if data is None:
-            if len(self._jpeg_cache) > 512:
+            if len(self._jpeg_cache) > 4096:         # GIF frames x keys can add up
                 self._jpeg_cache.clear()
             shape = getattr(dev, "shape", "square")
-            data = dev.encode(render(face, dev.image_size, rotate, shape))
+            picture = None
+            if face.image:
+                loaded = self.images.get(face.image)
+                picture = loaded.frames[face.frame] if loaded else None
+            data = dev.encode(render(face, dev.image_size, rotate, shape, picture))
             self._jpeg_cache[key] = data
         return data
 
@@ -445,6 +473,7 @@ class Engine:
             self.shown[(kind, idx)] = data
 
     def _paint(self, now: float):
+        self._animating = False                     # face_for sets it again while a GIF is visible
         for kind in SCREENS:
             if kind not in self.manager.devices:
                 continue

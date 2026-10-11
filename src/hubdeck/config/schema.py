@@ -101,6 +101,8 @@ class Face(Style):
     text: str | None = None
     font_size: int | None = Field(default=None, ge=4, le=72)
     gauge: bool = False   # ring showing the control's {value} (0-100); for the dial
+    image: str | None = None                          # file (relative to the config folder) or http(s) URL
+    image_fit: Literal["cover", "contain"] = "cover"  # cover: fill and crop; contain: fit inside
 
     @model_validator(mode="after")
     def _known_icon(self):
@@ -370,6 +372,7 @@ class Defaults(_Model):
     double_press_ms: int = Field(default=250, ge=50)
     style: Style = Style(bg="#19191e", fg="#3cc86e", label_color="#ffffff")
     led_gamma: float = Field(default=2.2, ge=1.0, le=4.0)   # LED colour/brightness correction (1 = off)
+    animation_fps: int = Field(default=30, ge=1, le=60)     # cap for GIF faces
 
 
 class Config(_Model):

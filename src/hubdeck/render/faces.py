@@ -28,6 +28,9 @@ class RenderFace:
     font_size: int | None = None  # in device pixels; None = fit automatically
     gauge: float | None = None    # 0-100: draw a value ring (None = no ring)
     gauge_known: bool = True      # False: draw the empty ring only (value unavailable)
+    image: str | None = None      # source of the background image (the frame itself is passed to render)
+    image_fit: str = "cover"
+    frame: int = 0                # animation frame, so each frame gets its own cache entry
 
 
 def parse_color(value: str) -> Color:
@@ -60,10 +63,23 @@ def _fit_font(d: ImageDraw.ImageDraw, text: str, max_w: float, max_h: float, sta
 
 
 def _draw_text(d, text: str, center: tuple[float, float], color: Color, max_w: float, max_h: float,
-               start: int, fixed: int | None = None):
+               start: int, fixed: int | None = None, outline: bool = False):
     f = _font(fixed) if fixed else _fit_font(d, text, max_w, max_h, start)
-    d.multiline_text(center, text, font=f, fill=color, anchor="mm", align="center",
-                     spacing=getattr(f, "size", 10) // 6)
+    size = getattr(f, "size", 10)
+    extra = dict(stroke_width=max(2, size // 10), stroke_fill=(0, 0, 0)) if outline else {}
+    d.multiline_text(center, text, font=f, fill=color, anchor="mm", align="center", spacing=size // 6, **extra)
+
+
+def _paste_image(img: Image.Image, src: Image.Image, fit: str):
+    s = img.width
+    src = src.convert("RGBA")
+    if fit == "contain":
+        scale = s / max(src.width, src.height)
+    else:
+        scale = s / min(src.width, src.height)
+    w, h = max(1, round(src.width * scale)), max(1, round(src.height * scale))
+    src = src.resize((w, h), Image.LANCZOS)
+    img.paste(src, ((s - w) // 2, (s - h) // 2), src)
 
 
 def _draw_icon(d, face: RenderFace, center: tuple[float, float], size: int):
@@ -88,10 +104,14 @@ def _draw_gauge(d, face: RenderFace, s: int):
             d.arc(box, GAUGE_START, GAUGE_START + GAUGE_SWEEP * value / 100, fill=face.fg, width=width)
 
 
-def render(face: RenderFace, size: int = 72, rotate: int = 0, shape: str = "square") -> Image.Image:
+def render(face: RenderFace, size: int = 72, rotate: int = 0, shape: str = "square",
+           image: Image.Image | None = None) -> Image.Image:
     s = size * SUPERSAMPLE
     img = Image.new("RGB", (s, s), face.bg)
+    if image is not None:
+        _paste_image(img, image, face.image_fit)
     d = ImageDraw.Draw(img)
+    outline = image is not None
     fixed = face.font_size * SUPERSAMPLE if face.font_size else None
     caption = face.label if face.label is not None else None
     body = face.text
@@ -110,16 +130,21 @@ def render(face: RenderFace, size: int = 72, rotate: int = 0, shape: str = "squa
         return off + x * s * k, off + y * s * k
 
     w = s * k
-    if face.icon and (caption or body):
+    if image is not None and not face.icon and caption and not body:
+        # picture with a caption: keep the picture visible, caption at the bottom
+        _draw_text(d, caption, at(0.5, 0.86), face.label_color, w * 0.92, w * 0.22, int(w * 0.18), fixed, outline)
+    elif face.icon and (caption or body):
         _draw_icon(d, face, at(0.5, 0.40), int(w * 0.56))
-        _draw_text(d, caption or body, at(0.5, 0.84), face.label_color, w * 0.92, w * 0.24, int(w * 0.18), fixed)
+        _draw_text(d, caption or body, at(0.5, 0.84), face.label_color, w * 0.92, w * 0.24, int(w * 0.18), fixed,
+                   outline)
     elif face.icon:
         _draw_icon(d, face, at(0.5, 0.5), int(w * 0.74))
     elif body and caption:
-        _draw_text(d, body, at(0.5, 0.40), face.label_color, w * 0.90, w * 0.58, int(w * 0.42), fixed)
-        _draw_text(d, caption, at(0.5, 0.84), face.label_color, w * 0.92, w * 0.24, int(w * 0.18))
+        _draw_text(d, body, at(0.5, 0.40), face.label_color, w * 0.90, w * 0.58, int(w * 0.42), fixed, outline)
+        _draw_text(d, caption, at(0.5, 0.84), face.label_color, w * 0.92, w * 0.24, int(w * 0.18), None, outline)
     elif body or caption:
-        _draw_text(d, body or caption, at(0.5, 0.5), face.label_color, w * 0.88, w * 0.88, int(w * 0.42), fixed)
+        _draw_text(d, body or caption, at(0.5, 0.5), face.label_color, w * 0.88, w * 0.88, int(w * 0.42), fixed,
+                   outline)
 
     img = img.resize((size, size), Image.LANCZOS)
     if rotate:
