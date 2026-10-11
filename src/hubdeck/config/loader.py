@@ -134,6 +134,22 @@ def check_references(cfg: Config) -> list[str]:
     return problems
 
 
+def _resolve_images(cfg: Config, base: Path) -> list[str]:
+    """Make image paths absolute (relative = next to the config) and check they exist."""
+    from ..render.images import is_url
+    problems = []
+    for where, kd in cfg.iter_defs():
+        for face in kd.faces():
+            if face.image and not is_url(face.image):
+                p = Path(os.path.expandvars(face.image)).expanduser()
+                if not p.is_absolute():
+                    p = base / p
+                if not p.is_file():
+                    problems.append(f"{where}: image {face.image!r} not found ({p})")
+                face.image = str(p)
+    return problems
+
+
 def load_config(path: Path, secrets: Path | None = None) -> Config:
     path = Path(path)
     data = _read_yaml(path)
@@ -156,7 +172,7 @@ def load_config(path: Path, secrets: Path | None = None) -> Config:
         cfg = Config.model_validate(data)
     except ValidationError as e:
         raise ConfigError(f"{path}: invalid config\n{format_validation_error(e)}")
-    problems = check_references(cfg)
+    problems = check_references(cfg) + _resolve_images(cfg, path.parent)
     if problems:
         raise ConfigError(f"{path}: invalid config\n" + "\n".join(f"  {p}" for p in problems))
     return cfg
