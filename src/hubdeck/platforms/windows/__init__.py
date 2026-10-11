@@ -1,15 +1,28 @@
-"""Windows: %APPDATA%, a named mutex, ShellExecute, named pipes, pycaw, SendInput."""
+"""Windows: %APPDATA%, a named mutex, ShellExecute, named pipes, pycaw, SendInput, the Run key."""
 
 from __future__ import annotations
 
 import ctypes
 import os
 import subprocess
+import sys
 from pathlib import Path
 
-from ..base import IpcConnection, Platform
+from ..base import IpcConnection, Platform, Unsupported
 
 CREATE_NO_WINDOW = 0x08000000
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"     # what Task Manager's Startup apps lists
+RUN_VALUE = "hubdeck"
+
+
+def tray_exe() -> Path | None:
+    """The hubdeck-tray.exe running now, to start at login: the app's own launcher
+    (sys.executable), or pip's script in a venv (sys.argv[0]). None when started another way."""
+    for candidate in (sys.executable, sys.argv[0] if sys.argv else ""):
+        path = Path(candidate) if candidate else None
+        if path and path.name.lower() == "hubdeck-tray.exe" and path.is_file():
+            return path.resolve()
+    return None
 
 
 class NamedPipeConnection(IpcConnection):
@@ -87,3 +100,29 @@ class WindowsPlatform(Platform):
     def keyboard(self):
         from .keyboard import SendInputKeyboard
         return SendInputKeyboard()
+
+    def start_at_login(self) -> bool | None:
+        exe = tray_exe()
+        if exe is None:
+            return None
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+                value, _ = winreg.QueryValueEx(key, RUN_VALUE)
+        except OSError:
+            return False
+        return str(value).strip().strip('"').lower() == str(exe).lower()   # not another copy of hubdeck
+
+    def set_start_at_login(self, on: bool):
+        import winreg
+        exe = tray_exe()
+        if on and exe is None:
+            raise Unsupported("starting at login needs hubdeck-tray.exe")
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            if on:
+                winreg.SetValueEx(key, RUN_VALUE, 0, winreg.REG_SZ, f'"{exe}"')
+            else:
+                try:
+                    winreg.DeleteValue(key, RUN_VALUE)
+                except FileNotFoundError:
+                    pass

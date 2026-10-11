@@ -54,7 +54,7 @@ From source, run them as `.\.venv\Scripts\hubdeck.exe …` on Windows and `.venv
 
 - **Close MasterHUB first, including its background daemon** (Windows). It drives the same modules, so the two would fight over the screens and lights.
 - **For everyday use, run `hubdeck-tray`.** Clicking the tray icon opens the editor (on macOS it opens the menu, where "Open editor" is the first item). The menu can also switch pages, reload, open the log and open this repo.
-- **To start at login on Windows,** see [Windows](#windows) for the installed app. From source, put a shortcut to `.venv\Scripts\hubdeck-tray.exe` in `shell:startup`.
+- **To start at login on Windows,** turn on **Start at login** in the tray menu. It works for the installed app and from source.
 - **To start at login on macOS,** see [macOS](#macos) below.
 
 ## Windows
@@ -65,10 +65,10 @@ From source, run them as `.\.venv\Scripts\hubdeck.exe …` on Windows and `.venv
    - The installer isn't signed, so **SmartScreen** stops it the first time ("Windows protected your PC"). Click **More info › Run anyway**.
 2. Start **hubdeck** from the Start menu. It lives in the tray, and clicking the icon opens the editor.
 3. `hubdeck` is on your PATH for `hubdeck send …`, `hubdeck list` and the rest. Open a new terminal after installing.
-4. **To start at login,** press Win+R, run `shell:startup`, and put a shortcut to `%LOCALAPPDATA%\Programs\hubdeck\hubdeck-tray.exe` there. Copying the **hubdeck** shortcut from the Start menu works too.
+4. **To start at login,** turn on **Start at login** in the tray menu. It shows up in Task Manager › Startup apps as hubdeck.
 
 - **Upgrading:** quit hubdeck from the tray, then run the new MSI. It replaces the installed version, including a development build of the same version. An older version refuses to install over a newer one.
-- **Uninstalling:** Settings › Apps › Installed apps › hubdeck. Your config in `%APPDATA%\hubdeck` stays.
+- **Uninstalling:** Settings › Apps › Installed apps › hubdeck. Your config in `%APPDATA%\hubdeck` stays. Turn **Start at login** off first: uninstalling doesn't remove that entry, so Startup apps would keep one that does nothing until you reinstall.
 - **What's installed:** `%LOCALAPPDATA%\Programs\hubdeck` holds `hubdeck-tray.exe` (the tray app), `hubdeck.exe` (the command line) and hubdeck's own Python. `hubdeck-<version>-windows-x64.zip` is the same folder, to run from anywhere without installing.
 
 ### Building the app

@@ -185,3 +185,75 @@ def test_macos_accent_resolved_again_only_when_the_setting_changes(monkeypatch):
     prefs[0] = (5, "Dark")                # dark mode shifts the shade
     assert plat.accent_color() == (166, 79, 169)
     assert resolved == [(1, None), (5, None), (5, "Dark")]
+
+
+class FakeWinreg:
+    """Just enough of winreg for the Run key, so the test runs anywhere."""
+    HKEY_CURRENT_USER, KEY_SET_VALUE, REG_SZ = "HKCU", 2, 1
+
+    def __init__(self):
+        self.keys = {}
+
+    class Key:
+        def __init__(self, values):
+            self.values = values
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def OpenKey(self, root, sub):
+        if (root, sub) not in self.keys:
+            raise FileNotFoundError(sub)
+        return self.Key(self.keys[(root, sub)])
+
+    def CreateKeyEx(self, root, sub, reserved, access):
+        return self.Key(self.keys.setdefault((root, sub), {}))
+
+    def QueryValueEx(self, key, name):
+        if name not in key.values:
+            raise FileNotFoundError(name)
+        return key.values[name], self.REG_SZ
+
+    def SetValueEx(self, key, name, reserved, kind, value):
+        key.values[name] = value
+
+    def DeleteValue(self, key, name):
+        if name not in key.values:
+            raise FileNotFoundError(name)
+        del key.values[name]
+
+
+def test_windows_start_at_login_uses_the_run_key(tmp_path, monkeypatch):
+    win = pytest.importorskip("hubdeck.platforms.windows")
+    reg = FakeWinreg()
+    monkeypatch.setitem(sys.modules, "winreg", reg)
+    plat = win.WindowsPlatform()
+
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
+    monkeypatch.setattr(sys, "argv", ["-m"])
+    assert plat.start_at_login() is None              # python -m hubdeck.tray: nothing to start
+
+    exe = tmp_path / "hubdeck" / "hubdeck-tray.exe"   # the installed app: its launcher is sys.executable
+    exe.parent.mkdir()
+    exe.write_bytes(b"MZ")
+    monkeypatch.setattr(sys, "executable", str(exe))
+    assert plat.start_at_login() is False
+    plat.set_start_at_login(True)
+    assert reg.keys[("HKCU", win.RUN_KEY)] == {"hubdeck": f'"{exe.resolve()}"'}
+    assert plat.start_at_login() is True
+    plat.set_start_at_login(False)
+    assert reg.keys[("HKCU", win.RUN_KEY)] == {} and plat.start_at_login() is False
+    plat.set_start_at_login(False)                    # already off: fine
+
+    dev = tmp_path / "venv" / "Scripts" / "hubdeck-tray.exe"   # pip's launcher in a venv: sys.argv[0]
+    dev.parent.mkdir(parents=True)
+    dev.write_bytes(b"MZ")
+    reg.keys[("HKCU", win.RUN_KEY)]["hubdeck"] = f'"{exe.resolve()}"'
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "venv" / "Scripts" / "pythonw.exe"))
+    monkeypatch.setattr(sys, "argv", [str(dev)])
+    assert plat.start_at_login() is False             # on, but for the other copy of hubdeck
+    plat.set_start_at_login(True)
+    assert plat.start_at_login() is True
