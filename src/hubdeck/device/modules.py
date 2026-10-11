@@ -111,8 +111,7 @@ class BaseModule(M0Module):
 
 class KnobsModule(M0Module):
     pid, kind = 0x0202, "knobs"
-    led_module, led_count = 0x02, 3
-    led_order = (2, 0, 1)   # top, bottom-left, bottom-right (docs/protocol/m003k.md)
+    led_module, led_count = 0x02, 3   # LED index = input index (docs/protocol/m003k.md)
 
     def __init__(self, serial=None):
         super().__init__(serial)
