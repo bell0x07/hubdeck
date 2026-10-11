@@ -169,10 +169,10 @@ Then, in GitLab › Settings › CI/CD › Variables, add `MACOS_SIGN_PEM` with 
 
 The version lives in one place, `__version__` in `src/hubdeck/__init__.py`.
 
-- **Branch pipelines** build a development version named after the branch, e.g. `hubdeck-1.1.0-feat-windows-app.48-windows-x64.msi` and `hubdeck-1.1.0-feat-windows-app.48-macos-arm64.zip`. They're kept as CI artifacts for 30 days and never released. On the job page, *Browse* › click a file to download it as is.
+- **Branch pipelines** build a development version named after the branch, e.g. `hubdeck-0.2.0-feat-windows-app.48-windows-x64.msi` and `hubdeck-0.2.0-feat-windows-app.48-macos-arm64.zip`. They're kept as CI artifacts for 30 days and never released. On the job page, *Browse* › click a file to download it as is.
 - **A release:**
   1. Bump `__version__` and merge to `main`.
-  2. Tag that commit `vX.Y.Z`, e.g. `git tag -a v1.1.0 -m "What's new" && git push origin v1.1.0` (with GitLab as `origin`), or **Code › Tags › New tag** in GitLab. The tag message becomes the release notes.
+  2. Tag that commit `vX.Y.Z`, e.g. `git tag -a v0.2.0 -m "What's new" && git push origin v0.2.0` (with GitLab as `origin`), or **Code › Tags › New tag** in GitLab. The tag message becomes the release notes.
   3. The tag pipeline tests, builds and publishes the release on **GitLab** (the files go to the package registry) and on **GitHub**: the macOS zip, and the Windows MSI and zip. A tag that doesn't match `__version__` fails the build.
 - **Setup, once:**
   - protect `v*` under GitLab › Settings › Repository › **Protected tags**
