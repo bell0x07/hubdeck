@@ -153,6 +153,8 @@ def main(argv=None):
     p.add_argument("--filled", action="store_true")
     p.set_defaults(fn=cmd_icons)
     sub.add_parser("where", help="show config, secrets and log paths").set_defaults(fn=cmd_where)
+    from .cli_probe import add_parser as add_probe_parser
+    add_probe_parser(sub)
 
     args = ap.parse_args(argv)
     args.fn(args)
