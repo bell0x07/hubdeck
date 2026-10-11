@@ -158,7 +158,32 @@ async function moduleSettings(change) {
   await saveGlobal("modules", mods);
 }
 const rotateModule = (kind, rot) => moduleSettings(m => { m[kind] = { ...(m[kind] || {}), rotate: (rot + 90) % 360 }; });
-const moveModule = (kind, x, y) => kind && moduleSettings(m => { m[kind] = { ...(m[kind] || {}), position: [x, y] }; });
+function moveModule(kind, x, y) {
+  // Dropping onto another module swaps the two; everything ends up with an explicit position so
+  // the arrangement stays exactly as placed.
+  const mods = S.layout.modules, me = mods[kind];
+  if (!kind || !me) return;
+  const L = S.layout;
+  x = Math.max(0, Math.min(x, L.cols - me.w));
+  y = Math.max(0, Math.min(y, L.rows - me.h));
+  const overlaps = (a, ax, ay, b) => b.x !== null && b.x !== undefined &&
+    ax < b.x + b.w && b.x < ax + a.w && ay < b.y + b.h && b.y < ay + a.h;
+  return moduleSettings(m => {
+    for (const [k, o] of Object.entries(mods)) {
+      if (k !== kind && o.x !== null && o.x !== undefined) m[k] = { ...(m[k] || {}), position: [o.x, o.y] };
+    }
+    for (const [k, o] of Object.entries(mods)) {
+      if (k === kind || !overlaps(me, x, y, o)) continue;
+      if (me.x !== null && me.x !== undefined) {
+        // put the other module where this one was (clamped so it stays on the base)
+        m[k].position = [Math.max(0, Math.min(me.x, L.cols - o.w)), Math.max(0, Math.min(me.y, L.rows - o.h))];
+      } else {
+        delete m[k].position;     // nowhere to swap to: let it be auto-placed
+      }
+    }
+    m[kind] = { ...(m[kind] || {}), position: [x, y] };
+  });
+}
 
 async function saveGlobal(name, raw) {
   const r = await api("/api/global", { name, raw });
