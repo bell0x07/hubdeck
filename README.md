@@ -60,7 +60,9 @@ Run them as `.\.venv\Scripts\hubdeck.exe …` on Windows and `.venv/bin/hubdeck 
 ### The hubdeck app
 
 1. Download `hubdeck-<version>-macos-arm64.zip` (Apple Silicon) from the CI artifacts or releases, unzip it, and drag **hubdeck.app** into **Applications**.
-2. Open it. A downloaded build that isn't notarised needs **right-click › Open** the first time, or **Open Anyway** in System Settings › Privacy & Security.
+2. Open it. macOS blocks a downloaded build that isn't notarised ("could not verify…"). Allow it once per download, in either of two ways:
+   - Try to open it, then go to **System Settings › Privacy & Security** and click **Open Anyway** next to the hubdeck message. Right-click › Open no longer works for this since macOS 15.
+   - Or in Terminal: `xattr -dr com.apple.quarantine /Applications/hubdeck.app`
 3. hubdeck lives in the menu bar (no Dock icon). Its menu has **Start at login**.
 4. For the command line, and for Shortcuts, link it once:
 
@@ -118,8 +120,8 @@ That writes `dist/hubdeck-<version>-macos-arm64.zip`. On a Mac, `python packagin
 
 | set in the environment / CI variables | result |
 | --- | --- |
-| nothing | ad-hoc: works, but **macOS forgets the permissions on every update**, and the first launch needs right-click › Open |
-| `MACOS_SIGN_PEM` (file) with a **self-signed** certificate | permissions **survive updates**; the first launch still needs right-click › Open |
+| nothing | ad-hoc: works, but **macOS forgets the permissions on every update**, and each download needs **Open Anyway** once |
+| `MACOS_SIGN_PEM` (file) with a **self-signed** certificate | permissions **survive updates**; each download still needs **Open Anyway** once |
 | the same with a **Developer ID** certificate, plus `MACOS_NOTARY_API_KEY` (file) | signed and notarised: opens normally ($99/year Apple Developer Program) |
 
 To make a self-signed certificate once, run this. Keep the file safe: it holds the private key.
@@ -130,6 +132,21 @@ rcodesign generate-self-signed-certificate --person-name "hubdeck" --validity-da
 ```
 
 Then, in GitLab › Settings › CI/CD › Variables, add `MACOS_SIGN_PEM` with **type File**, and paste the file's contents as the value. A `.p12` works too (`MACOS_SIGN_P12` plus `MACOS_SIGN_P12_PASSWORD`), for local builds.
+
+### Releasing
+
+The version lives in one place, `__version__` in `src/hubdeck/__init__.py`.
+
+- **Branch pipelines** build a development version named after the branch, e.g. `hubdeck-0.1.0-feat-macos-app.48-macos-arm64.zip`. It's kept as a CI artifact for 30 days and never released. On the job page, *Browse* › click the zip to download it as is.
+- **A release:**
+  1. Bump `__version__` and merge to `main`.
+  2. Tag that commit `vX.Y.Z`, e.g. `git tag -a v0.2.0 -m "What's new" && git push gitlab v0.2.0`, or **Code › Tags › New tag** in GitLab. The tag message becomes the release notes.
+  3. The tag pipeline tests, builds and publishes the release on **GitLab** (the zip goes to the package registry) and on **GitHub**. A tag that doesn't match `__version__` fails the build.
+- **Setup, once:**
+  - protect `v*` under GitLab › Settings › Repository › **Protected tags**
+  - add a **masked, protected** CI variable `GITHUB_TOKEN`, a GitHub token for the repository with *Contents: read and write* (the mirror's token works)
+
+  Without the token, releases go to GitLab only.
 
 ## Editor
 

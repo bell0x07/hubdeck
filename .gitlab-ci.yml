@@ -4,8 +4,14 @@
 #   MACOS_SIGN_PEM            File   certificate + private key, PEM (self-signed is enough for
 #                                    permissions to survive updates; see README "Building the app")
 #   MACOS_NOTARY_API_KEY      File   App Store Connect API key JSON (with a Developer ID certificate)
+# Releases (tags vX.Y.Z only; protect the tags so protected variables reach them):
+#   GITHUB_TOKEN              Masked, protected: token for github.com/bell0x07/hubdeck with
+#                             Contents: read and write, to publish the GitHub release
+#
+# Branch pipelines build a development version named after the branch (CI artifact only);
+# a tag vX.Y.Z (matching hubdeck.__version__) builds X.Y.Z and releases it on GitLab and GitHub.
 
-stages: [test, build]
+stages: [test, build, release]
 
 default:
   image: python:3.13.7-slim-bookworm
@@ -34,5 +40,14 @@ macos-app:
     - python packaging/macos/build.py --arch arm64
   artifacts:
     name: "hubdeck-macos-$CI_COMMIT_REF_SLUG"
-    paths: [dist/*.zip]
+    paths: [dist/]
+    expose_as: macOS app          # merge requests link to it; click the zip there to download it as is
     expire_in: 30 days
+
+release:
+  stage: release
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  needs: [macos-app]
+  script:
+    - python packaging/release.py

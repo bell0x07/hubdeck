@@ -9,6 +9,10 @@ Produces dist/hubdeck-<version>-macos-<arch>.zip holding hubdeck.app: a standalo
 Needs: Python 3.13 with pip, Pillow and packaging; zig (`pip install ziglang`); rcodesign
 (https://github.com/indygreg/apple-platform-rs) for signing - or, on a Mac, codesign.
 
+Version: a tag vX.Y.Z builds X.Y.Z (it must match hubdeck.__version__); anything else is a
+development build named after its branch, e.g. 0.1.0-feat-macos-app.48 in CI (pipeline number)
+or 0.1.0-main-local on your machine.
+
 Signing, from the environment:
   (nothing)                       ad-hoc. macOS forgets the app's permissions on every update.
   MACOS_SIGN_PEM                  sign with this certificate: a PEM file holding certificate and
@@ -26,12 +30,14 @@ import argparse
 import hashlib
 import os
 import plistlib
+import re
 import shutil
 import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import tomllib
 import urllib.request
 import zipfile
@@ -91,6 +97,41 @@ def fetch(url: str, sha256: str, cache: Path) -> Path:
 
 def project() -> dict:
     return tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+
+
+def base_version() -> str:
+    """hubdeck.__version__, read without importing (the single source of the version)."""
+    text = (ROOT / "src/hubdeck/__init__.py").read_text()
+    return re.search(r'^__version__ = "([^"]+)"', text, re.M).group(1)
+
+
+def slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "unknown"
+
+
+def build_version(env=os.environ) -> str:
+    """X.Y.Z for a release tag, <base>-<branch>.<pipeline> for anything else."""
+    base = base_version()
+    tag = env.get("CI_COMMIT_TAG")
+    if tag:
+        if tag.removeprefix("v") != base:
+            sys.exit(f"tag {tag} doesn't match hubdeck.__version__ {base}: bump src/hubdeck/__init__.py first")
+        return base
+    if env.get("CI"):
+        return f"{base}-{slug(env.get('CI_COMMIT_REF_NAME', ''))}.{env.get('CI_PIPELINE_IID', '0')}"
+    branch = subprocess.run(["git", "-C", ROOT, "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True).stdout.strip()
+    return f"{base}-{slug(branch)}-local"
+
+
+def commit_time(env=os.environ) -> time.struct_time:
+    """When the built commit was made: the date files get inside the zip."""
+    stamp = env.get("CI_COMMIT_TIMESTAMP")       # ISO 8601
+    if stamp:
+        from datetime import datetime
+        return datetime.fromisoformat(stamp).astimezone().timetuple()
+    r = subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%ct"], capture_output=True, text=True)
+    return time.localtime(int(r.stdout) if r.stdout.strip() else time.time())
 
 
 def darwin_requirements() -> list[str]:
@@ -190,6 +231,7 @@ def write_icon(app: Path):
 
 
 def write_info_plist(app: Path, version: str, build: str):
+    short = version.split("-")[0]                  # macOS wants plain X.Y.Z here
     info = {
         "CFBundleName": "hubdeck",
         "CFBundleDisplayName": "hubdeck",
@@ -197,8 +239,9 @@ def write_info_plist(app: Path, version: str, build: str):
         "CFBundleExecutable": "hubdeck",
         "CFBundleIconFile": "hubdeck",
         "CFBundlePackageType": "APPL",
-        "CFBundleShortVersionString": version,
+        "CFBundleShortVersionString": short,
         "CFBundleVersion": build,
+        "HubdeckBuildVersion": version,
         "CFBundleInfoDictionaryVersion": "6.0",
         "LSMinimumSystemVersion": MIN_MACOS,
         "LSUIElement": True,                       # menu-bar app: no Dock icon
@@ -251,14 +294,15 @@ def sign(app: Path):
         run([rcodesign, "notary-submit", "--api-key-file", notary_key, "--staple", app])
 
 
-def zip_app(app: Path, dest: Path):
-    """Zip keeping permissions and symlinks, as Finder's Archive Utility expects."""
+def zip_app(app: Path, dest: Path, when: time.struct_time):
+    """Zip keeping permissions and symlinks, as Finder's Archive Utility expects; every entry
+    is dated `when` (zip's own default is 1 January 1980)."""
     log(f"writing {dest}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for path in sorted([app, *app.rglob("*")]):
             arc = str(path.relative_to(app.parent)) + ("/" if path.is_dir() and not path.is_symlink() else "")
-            info = zipfile.ZipInfo(arc)
+            info = zipfile.ZipInfo(arc, date_time=tuple(when)[:6])
             st = path.lstat()
             info.external_attr = (st.st_mode & 0xFFFF) << 16
             info.create_system = 3                     # unix, so the modes count
@@ -281,7 +325,8 @@ def main():
     ap.add_argument("--no-zip", action="store_true", help="leave hubdeck.app in the output folder instead")
     args = ap.parse_args()
 
-    version = project()["version"]
+    version = build_version()
+    log(f"building hubdeck {version} for {args.arch}")
     work = ROOT / "build" / f"macos-{args.arch}"
     if work.exists():
         shutil.rmtree(work)
@@ -306,7 +351,7 @@ def main():
         shutil.copytree(app, final, symlinks=True)
         log(f"done: {final}")
     else:
-        zip_app(app, args.out / f"hubdeck-{version}-macos-{args.arch}.zip")
+        zip_app(app, args.out / f"hubdeck-{version}-macos-{args.arch}.zip", commit_time())
         log("done")
 
 
