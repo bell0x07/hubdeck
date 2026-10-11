@@ -23,7 +23,10 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
   - `current()` picks `windows/`, `macos/` or `posix.py` (shared by macOS and Linux, and the fallback for other OSes, without audio or keystrokes). Linux support goes into a `linux/` package subclassing `PosixPlatform`.
   - `keys.py` holds the canonical key names and aliases (`cmd` → `win`); each `Keyboard` maps them to its own codes.
   - OS libraries (pycaw, pyobjc) are imported inside methods only.
+- **`control.py`:** the control channel behind `hubdeck send`. `Engine.run()` starts it: 127.0.0.1 on a random port, one JSON request per connection, with the port and a per-run token in `control.json` (0600). Actions are checked with `Engine.check_runnable` and queued for the engine thread. `send image` stores pictures client-side in `cache/sent` (scaled, one per name) and only sends the path; a face `image` may be a template (`{vars.picture}`), resolved per paint.
 - **`plugins/`:** each plugin declares `actions`, `states` and `values` (adjustable targets via `adjust`/`set`, published through `watch` as `value:<name>:<arg>` states). Slow plugins subclass `ThreadedPlugin`. Plugin modules must not import heavy dependencies at import time.
+  - Plugins whose state names come from the config (`vars`: anything set; `shortcuts`: `outputs`) override `check_state`.
+  - `platforms = ("darwin",)` limits a plugin to some OSes. Configs still load elsewhere, but the editor's `/api/meta` only lists `available()` plugins, so the UI never offers them (Shortcuts is macOS-only).
 - **`gui/`:** browser editor.
   - `server.py` is a stdlib HTTP server on 127.0.0.1 with a per-run token and a Host check, serving a JSON API and `assets/gui/` (vanilla JS, no build).
   - `doc.py` edits config.yaml with ruamel.yaml round-trip. It keeps comments, `!secret` tags and the user's spacing on untouched lines, and validates with the real loader before writing.

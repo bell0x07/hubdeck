@@ -201,9 +201,9 @@ These share the same fields.
 
 - **Fields:** `icon` (a Tabler name; `filled: true` uses the filled style), `label`, `text`, `bg`, `fg` (icon colour), `label_color` and `font_size`.
 - **Colours** are `#rrggbb`, a name like `red`, or `accent`: the system accent colour on macOS, hubdeck green elsewhere. Icons default to `accent`.
-- **Live text:** `text` and `label` can include `{plugin.state}` or `{plugin.state:format}`, for example `{system.time:%H:%M}` or `{system.cpu:.0f}%`.
+- **Live text:** `text` and `label` can include `{plugin.state}` or `{plugin.state:format}`, for example `{system.time:%H:%M}` or `{system.cpu:.0f}%`. For multi-line text, `:line1`, `:line2`… picks one line.
 - **Control value:** on a control with a turn target, `{value}` shows the target's current value, and `gauge: true` draws a ring around the Dial.
-- **Pictures:** `image: file.png`, `.jpg` or **animated `.gif`**.
+- **Pictures:** `image: file.png`, `.jpg` or **animated `.gif`**, or a picture sent from outside, `image: "{vars.picture}"` (see [`hubdeck send`](#driving-hubdeck-hubdeck-send)).
   - A relative path is resolved next to the config.
   - An `http(s)` URL is downloaded in the background (10 MB limit) and cached.
   - `image_fit: cover` (default) fills the face; `contain` fits the whole picture inside.
@@ -262,6 +262,8 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `audio` | `toggle_mute` / `mute` / `unmute` (speakers or microphone), `volume_up`, `volume_down`, `set_volume`, `set_output` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
 | `system` | none | `time`, `cpu`, `ram` | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
+| `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
+| `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
 
 - **Media keys:** `play_pause`, `next`, `prev`, `stop`, `vol_up`, `vol_down` and `mute`.
 - **Hold to mute:** put `on_down: discord.hold_mute_start` and `on_up: discord.hold_mute_end` on one key. This works even if you switch pages while holding it.
@@ -276,6 +278,67 @@ The Discord plugin needs a Discord app. You create it once, for your own account
 3. Add the redirect `http://localhost` and click **Save Changes**. It must be the **only** redirect. If there are none, or more than one, authorization fails with `Missing "redirect_uri" in request`.
 
 The first time hubdeck connects, Discord shows an authorization popup. The login token is then kept in `discord_token.json` in the hubdeck folder. Voice RPC only works for the app's owner and for whitelisted testers.
+
+## Shortcuts, scripts and automation
+
+hubdeck works in both directions: controls can run your automations, and automations can drive hubdeck.
+
+### Driving hubdeck: `hubdeck send`
+
+While hubdeck runs (`hubdeck run` or the tray), any script or automation can send it commands:
+
+```sh
+hubdeck send discord.toggle_mute       # any action, written as in the config
+hubdeck send page media                # ...with an argument, read like YAML
+hubdeck send audio.set_volume 30
+hubdeck send set focus Work            # set vars.focus
+hubdeck send set weather -             # set vars.weather to the text on stdin, as is
+hubdeck send image picture photo.jpg   # show a picture: image: "{vars.picture}" (- reads stdin)
+hubdeck send get discord.muted         # print a state (empty while unknown)
+```
+
+- **Values (`vars`):** `set` stores a value that keys and lighting use like any state: `{vars.focus}` in text or labels, `state: vars.dnd` with `face_on`, or a lighting `state`. Keys can change them too (`{vars.toggle: dnd}`). Starting values go under `plugins: {vars: {focus: none}}`, and a name that was never set is unknown.
+- **From the Shortcuts app (macOS):** end a Shortcut with a **Run Shell Script** action, using the full path and **Pass Input: to stdin**. Shortcuts' Advanced settings must allow running scripts.
+  - Text: `/Users/you/hubdeck/.venv/bin/hubdeck send set weather -` sends the Shortcut's result. Show it with `{vars.weather}`, or one line of it with `{vars.weather:line1}`.
+  - Pictures: `…/hubdeck send image picture -` with a key face `image: "{vars.picture}"`. Put a **Convert Image** (to PNG) action before it, because iPhone photos are HEIC. Pictures are scaled to 480 px and kept in `cache/sent` in the hubdeck folder; each new one replaces the last.
+  - A Shortcut that pushes its result can run from anywhere: an automation, the menu bar, or a key (`{shortcuts.run: …}`).
+- **Errors:** an unknown action, a bad argument or a plugin that the config doesn't use is reported straight away, with a non-zero exit code.
+- **How it works:** hubdeck listens on 127.0.0.1 only, on a random port. It keeps the port and a per-run token in `control.json` in the hubdeck folder, readable only by you. It works the same on Windows.
+
+### Running Shortcuts (macOS)
+
+```yaml
+plugins:
+  shortcuts:
+    outputs:                               # each becomes the state shortcuts.<name>
+      weather: {run: "Get weather", every: 600}   # seconds, at least 10 (default 300)
+
+keys:
+  1: {action: {shortcuts.run: "Lights off"}, face: {icon: bulb-off, label: Lights}}
+  2: {action: {shortcuts.run: {name: "Set scene", input: movie}}}       # input: text the Shortcut receives
+  3: {action: {shortcuts.refresh: weather}, face: {text: "{shortcuts.weather}"}}
+```
+
+- **`run`** runs the Shortcut in the background, so a slow one never holds up the controls.
+- **Outputs** run on their schedule (and on `refresh`), and whatever text the Shortcut returns becomes the state.
+- **The editor** offers "Run a Shortcut" with your Shortcuts as suggestions, but only on macOS. A config with Shortcut actions still loads elsewhere; the actions just log that Shortcuts aren't available.
+
+### Example: weather on a key
+
+A Shortcut named **hubdeck weather** with three actions:
+
+1. **Get Current Weather**.
+2. **Text**, with two lines: Control-click the box, **Insert Variable** › *Weather Conditions*, click the inserted token and choose **Temperature**. On the second line, do the same and choose **Condition**.
+3. **Run Shell Script** `/Users/you/hubdeck/.venv/bin/hubdeck send set weather -`, with **Input:** *Text* and **Pass Input:** *to stdin*.
+
+```yaml
+keys:
+  15:
+    action: {shortcuts.run: "hubdeck weather"}     # press to update now
+    face: {text: "{vars.weather:line1}", label: "{vars.weather:line2}"}
+```
+
+Run it once with ▶ to allow Location access. Add an hourly automation in Shortcuts to keep the key current.
 
 ## Hot-plugging and sharing
 

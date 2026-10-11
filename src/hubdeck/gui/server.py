@@ -237,7 +237,7 @@ class GuiServer:
         from ..plugins import REGISTRY
         return {
             "plugins": {n: {"actions": p.actions, "states": p.states, "values": p.values}
-                        for n, p in REGISTRY.items()},
+                        for n, p in REGISTRY.items() if p.available()},
             "aliases": {k: f"{p}.{a}" for k, (p, a) in ALIASES.items()},
             "gestures": list(GESTURES),
             "led_modes": list(LED_MODES),
@@ -318,7 +318,7 @@ class GuiServer:
         kd = model.model_validate(raw) if raw else None
         if kd is not None:
             for face in kd.faces():   # relative images resolve next to the config, like the loader does
-                if face.image and not face.image.lower().startswith(("http://", "https://")):
+                if face.image and "{" not in face.image and not face.image.lower().startswith(("http://", "https://")):
                     p = Path(face.image).expanduser()
                     face.image = str(p if p.is_absolute() else self.source.path.parent / p)
         return self.preview.render(cfg, page, section, kd, "round" if section == "dial" else "square")
@@ -345,6 +345,15 @@ class GuiServer:
         t.start()
         t.join(5)
         return out
+
+    def shortcut_names(self) -> dict:
+        """The user's Shortcuts (macOS), for the picker; empty elsewhere or on failure."""
+        from ..platforms import current
+        try:
+            return {"names": current().shortcut_names()}
+        except Exception:
+            log.debug("listing Shortcuts failed", exc_info=True)
+            return {"names": []}
 
     def icon_png(self, name: str, filled: bool) -> bytes:
         cp = tabler.codepoint(name, filled)
@@ -421,6 +430,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(a.api_yaml())
             if url.path == "/api/audio":
                 return self._json(a.audio_info())
+            if url.path == "/api/shortcuts":
+                return self._json(a.shortcut_names())
             if url.path == "/api/icons":
                 hits = tabler.search(q.get("q", ""), q.get("filled") == "1")[:150]
                 return self._json({"icons": hits})

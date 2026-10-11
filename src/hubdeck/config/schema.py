@@ -487,7 +487,7 @@ class Config(_Model):
             if kd.state:
                 refs.add(tuple(kd.state.split(".", 1)))
             for f in kd.faces():
-                for s in (f.text, f.label):
+                for s in (f.text, f.label, f.image):
                     if s:
                         refs.update((p, n) for p, n, _ in TEMPLATE_RE.findall(s))
         for _, _, zone in self.lighting.zones():

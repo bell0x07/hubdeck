@@ -15,7 +15,7 @@ const h = (tag, attrs = {}, ...kids) => {
 
 const NAMES = { keys: "Keys", dial: "Dial", knobs: "Knobs", rollers: "Rollers", faders: "Faders" };
 const SINGULAR = { keys: "Key", dial: "Dial", knobs: "Knob", rollers: "Roller", faders: "Fader" };
-let S = null, META = null, AUDIO = { apps: [], outputs: [] }, page = null, sel = null, cur = null, stamp = Date.now();
+let S = null, META = null, AUDIO = { apps: [], outputs: [] }, SHORTCUTS = null, page = null, sel = null, cur = null, stamp = Date.now();
 const IS_MAC = () => META?.platform === "darwin";
 
 // ---------------------------------------------------------------------------------------
@@ -42,6 +42,8 @@ const ACTIONS = [
     { label: "Open a website", arg: { kind: "text", placeholder: "https://…" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open" && /^https?:/i.test(a.arg || ""), get: a => a.arg },
     { label: "Open an app, file or folder", arg: { kind: "text", placeholder: () => IS_MAC() ? "Spotify, or /Applications/…" : "C:\\Program Files\\…\\app.exe" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open", get: a => a.arg },
     { label: "Run a command", arg: { kind: "text", placeholder: () => IS_MAC() ? "e.g. say hello" : "e.g. notepad.exe" }, make: v => ({ run: v || "" }), is: a => a.name === "launch.run" && typeof a.arg === "string", get: a => a.arg },
+    { label: "Run a Shortcut", needs: "shortcuts", arg: { kind: "shortcut" }, make: v => ({ "shortcuts.run": v || "" }), is: a => a.name === "shortcuts.run" && typeof a.arg === "string", get: a => a.arg },
+    { label: "Flip a value (vars)", arg: { kind: "text", placeholder: "name, e.g. dnd" }, make: v => ({ "vars.toggle": v || "" }), is: a => a.name === "vars.toggle", get: a => a.arg },
   ] },
   { group: "Keyboard", items: [
     { label: "Keyboard shortcut", arg: { kind: "keys" }, make: v => ({ keys: v || "" }), is: a => a.name === "keyboard.keys", get: a => a.arg },
@@ -124,6 +126,7 @@ async function load() {
   err.classList.toggle("hidden", !S.error);
   setStatus(S.live ? "● connected to hubdeck" : "editing " + S.path.split(/[\\/]/).pop(), S.error ? "bad" : "ok");
 }
+async function loadShortcuts() { try { SHORTCUTS = (await api("/api/shortcuts")).names; } catch { SHORTCUTS = []; } }
 async function loadAudio() { try { AUDIO = await api("/api/audio"); } catch { /* no audio support on this OS */ } }
 
 function sectionOf(section, p = page) {
@@ -336,7 +339,9 @@ function keyRecorder(value, onChange) {
 // ---------------------------------------------------------------------------------------
 // Friendly action picker
 // ---------------------------------------------------------------------------------------
-function findItem(a) { return ALL_ACTIONS.find(it => it.is(a)); }
+// items for a plugin this OS doesn't have (Shortcuts off macOS) are never offered; such actions show as Custom
+const offered = it => !it.needs || !!META?.plugins[it.needs];
+function findItem(a) { return ALL_ACTIONS.find(it => offered(it) && it.is(a)); }
 
 function argInput(item, value, onChange) {
   const spec = item.arg;
@@ -352,6 +357,13 @@ function argInput(item, value, onChange) {
       ...opts.map(o => h("option", { value: o, selected: o === value }, o)));
   }
   if (spec.kind === "keys") return keyRecorder(value, onChange);
+  if (spec.kind === "shortcut") {
+    const list = h("datalist", { id: "shortcut-names" });
+    const fill = () => list.replaceChildren(...(SHORTCUTS || []).map(n => h("option", { value: n })));
+    if (SHORTCUTS === null) loadShortcuts().then(fill); else fill();
+    return h("span", { class: "argwrap" }, h("input", { type: "text", value: value ?? "", list: "shortcut-names",
+      placeholder: "Shortcut name", oninput: e => onChange(e.target.value) }), list);
+  }
   return h("input", { type: "text", value: value ?? "", placeholder: (typeof spec.placeholder === "function" ? spec.placeholder() : spec.placeholder) || "", oninput: e => onChange(e.target.value) });
 }
 
@@ -359,7 +371,7 @@ function actionSelect(selected, onPick) {
   return h("select", { class: "actsel", onchange: e => onPick(e.target.value) },
     h("option", { value: "" }, "— nothing —"),
     ...ACTIONS.map(g => h("optgroup", { label: g.group },
-      ...g.items.map(it => h("option", { value: ALL_ACTIONS.indexOf(it), selected: it === selected }, it.label)))),
+      ...g.items.filter(offered).map(it => h("option", { value: ALL_ACTIONS.indexOf(it), selected: it === selected }, it.label)))),
     selected === "custom" ? h("option", { value: "custom", selected: true }, "Custom (see Advanced)") : null);
 }
 

@@ -9,6 +9,7 @@ import ctypes
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from ..posix import PosixPlatform
@@ -114,6 +115,26 @@ class MacPlatform(PosixPlatform):
     def keyboard(self):
         from .keyboard import QuartzKeyboard
         return QuartzKeyboard()
+
+    def run_shortcut(self, name, input=None, timeout=60):
+        with tempfile.TemporaryDirectory(prefix="hubdeck-") as tmp:
+            out = Path(tmp) / "output.txt"
+            cmd = ["shortcuts", "run", name, "--output-path", str(out), "--output-type", "public.plain-text"]
+            if input is not None:
+                src = Path(tmp) / "input.txt"
+                src.write_text(str(input), encoding="utf-8")
+                cmd += ["--input-path", str(src)]
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+            except subprocess.TimeoutExpired:
+                raise OSError(f"Shortcut {name!r} didn't finish within {timeout:g} s")
+            if r.returncode:
+                raise OSError(f"Shortcut {name!r}: {r.stderr.strip() or f'failed ({r.returncode})'}")
+            return out.read_text(encoding="utf-8", errors="replace").strip() if out.exists() else ""
+
+    def shortcut_names(self):
+        r = subprocess.run(["shortcuts", "list"], capture_output=True, text=True, timeout=10)
+        return sorted({line.strip() for line in r.stdout.splitlines() if line.strip()}, key=str.lower)
 
     def accent_color(self):
         """Cheap to call often: the colour is only resolved again when the settings change."""

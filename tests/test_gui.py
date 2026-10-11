@@ -212,3 +212,11 @@ def test_api_face_png(server):
     prev = call(server, "/api/preview.png", {"page": "main", "section": "keys", "num": 9,
                                              "raw": {"face": {"text": "Hi", "bg": "red"}}})
     assert prev[:4] == b"\x89PNG"
+
+
+@pytest.mark.parametrize("os_name, offered", [("darwin", True), ("win32", False), ("linux", False)])
+def test_editor_offers_shortcuts_only_on_macos(server, monkeypatch, os_name, offered):
+    monkeypatch.setattr("hubdeck.plugins.base.sys.platform", os_name)
+    plugins = server.api_meta()["plugins"]
+    assert ("shortcuts" in plugins) is offered
+    assert "vars" in plugins and "audio" in plugins          # everything else stays

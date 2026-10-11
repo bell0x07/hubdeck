@@ -133,6 +133,14 @@ class Platform(ABC):
     def keyboard(self) -> Keyboard:
         raise Unsupported(f"keystrokes are not supported on {self.name} yet")
 
+    def run_shortcut(self, name: str, input: str | None = None, timeout: float = 60) -> str:
+        """Run one of the user's automations (macOS Shortcuts) by name; returns its text output."""
+        raise Unsupported(f"Shortcuts are not available on {self.name}")
+
+    def shortcut_names(self) -> list[str]:
+        """Names run_shortcut accepts, for the editor's picker."""
+        return []
+
     # -- look ---------------------------------------------------------------
     def accent_color(self) -> tuple[int, int, int] | None:
         """The user's system accent colour (sRGB), or None to use hubdeck green."""

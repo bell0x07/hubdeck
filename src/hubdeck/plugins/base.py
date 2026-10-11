@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import sys
 import threading
 from typing import Any, Callable, ClassVar
 
@@ -36,12 +37,19 @@ class Plugin:
     actions: ClassVar[dict[str, str]] = {}   # action -> help text
     states: ClassVar[dict[str, str]] = {}    # state -> help text
     values: ClassVar[dict[str, str]] = {}    # adjustable value (turn/fader target) -> help text
+    platforms: ClassVar[tuple[str, ...] | None] = None   # sys.platform values it works on; None = all
 
     def __init__(self, ctx: PluginContext, config: dict):
         self.ctx = ctx
         self.config = config
         self.log = ctx.log
         self.watched: set[tuple[str, Any]] = set()
+
+    @classmethod
+    def available(cls) -> bool:
+        """Whether it works on this OS. Configs may still use it elsewhere (one config for
+        several machines); the editor only offers what's available."""
+        return cls.platforms is None or sys.platform in cls.platforms
 
     @classmethod
     def check_config(cls, config: dict) -> list[str]:
@@ -51,6 +59,14 @@ class Plugin:
     @classmethod
     def check_action(cls, action: str, arg: Any) -> str | None:
         """Return a problem with an action's argument, or None."""
+        return None
+
+    @classmethod
+    def check_state(cls, name: str, config: dict) -> str | None:
+        """Return a problem with a reference to state `name`, or None. Plugins whose states
+        come from their settings (`config`, the plugins.<name> section) override this."""
+        if name not in cls.states:
+            return f"{cls.name} has no state {name!r} (available: {', '.join(cls.states) or 'none'})"
         return None
 
     def start(self):

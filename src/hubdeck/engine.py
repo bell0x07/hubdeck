@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 import time
 from datetime import date, datetime
@@ -33,11 +34,18 @@ TAKEOVER_WINDOW = 4                               # faders pick up the value wit
 FADER_ECHO_SECONDS = 1.0                          # a target value this recent from the fader is its own echo
 
 
+LINE_FMT = re.compile(r"line(\d+)")
+
+
 def format_value(value: Any, fmt: str | None) -> str:
     if value is None:
         return "–"
     if isinstance(value, (datetime, date)):
         return value.strftime(fmt or "%H:%M")
+    if isinstance(value, str) and fmt and (m := LINE_FMT.fullmatch(fmt.strip())):
+        lines = value.splitlines()    # {shortcuts.weather:line2}: one line of multi-line text
+        n = int(m.group(1))
+        return lines[n - 1].strip() if 0 < n <= len(lines) else ""
     if fmt:
         try:
             return format(value, fmt)
@@ -106,6 +114,28 @@ class Engine:
     def reload(self):
         self._commands.put(("reload",))
 
+    def run_action(self, action: Action):
+        """Run an action on the engine thread (from any thread, e.g. the control channel)."""
+        self._commands.put(("action", action))
+
+    def check_runnable(self, action: Action) -> str | None:
+        """Why `action` can't run now, or None. For actions that don't come from the config
+        (hubdeck send), which the loader hasn't checked."""
+        from .plugins import REGISTRY
+        plugin = REGISTRY.get(action.plugin)
+        if plugin is None:
+            return f"unknown plugin {action.plugin!r} (available: {', '.join(sorted(REGISTRY))})"
+        if action.name not in plugin.actions:
+            return f"{action.plugin} has no action {action.name!r} (available: {', '.join(plugin.actions)})"
+        if err := plugin.check_action(action.name, action.arg):
+            return err
+        if action.plugin == "page":
+            if action.name == "goto" and (self.cfg is None or action.arg not in self.cfg.pages):
+                return f"no page named {action.arg!r}"
+        elif action.plugin not in self.plugins:
+            return f"{action.plugin} isn't running: nothing in the config uses it yet"
+        return None
+
     def stop(self):
         self._stop.set()
 
@@ -114,13 +144,20 @@ class Engine:
         self._apply(self.source.load())
 
     def run(self):
+        from .control import ControlServer
         if self.cfg is not None and not self.page_stack:
             self._apply(self.cfg)
+        control = ControlServer(self)
+        try:
+            control.start()
+        except OSError as e:
+            log.warning("control channel not available (hubdeck send won't work): %s", e)
         try:
             while not self._stop.is_set():
                 self.step()
                 time.sleep(LOOP_SLEEP)
         finally:
+            control.stop()
             self.shutdown()
 
     def shutdown(self):
@@ -188,6 +225,8 @@ class Engine:
                 self._set_pages(self.page_stack + [cmd[1]] if cmd[1] != self.current_page else self.page_stack)
             elif cmd[0] == "reload":
                 self._try_reload()
+            elif cmd[0] == "action" and self.cfg:
+                self._invoke(cmd[1])
 
     # -- config ------------------------------------------------------------
     def _try_reload(self):
@@ -473,6 +512,10 @@ class Engine:
         value = self.target_value(kd)
         gauge = merged.get("gauge", False)
         image, frame = merged.get("image"), 0
+        if image and "{" in image:              # e.g. {vars.picture}: a picture sent with `hubdeck send image`
+            image = self._template(image, value)
+            if image in ("", "–"):
+                image = None
         if image:
             loaded = self.images.get(image)
             if loaded is None:

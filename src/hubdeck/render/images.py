@@ -83,6 +83,7 @@ class ImageStore:
             path = cached
         else:
             path = Path(src).expanduser()
+            self._forget_missing()
         try:
             img = load_image(path)
             log.info("loaded image %s (%d frame%s)", src, len(img.frames), "" if len(img.frames) == 1 else "s")
@@ -121,6 +122,12 @@ class ImageStore:
             with self._lock:
                 self._pending.discard(url)
             self.changed.set()
+
+    def _forget_missing(self):
+        """Drop files that are gone, e.g. pictures replaced by a newer `hubdeck send image`."""
+        with self._lock:
+            for src in [s for s in self._images if not is_url(s) and not Path(s).expanduser().exists()]:
+                del self._images[src]
 
     def forget(self):
         """Drop loaded images (config reload: files may have changed)."""

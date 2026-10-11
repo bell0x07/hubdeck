@@ -37,6 +37,15 @@ _Loader.add_implicit_resolver("tag:yaml.org,2002:bool", re.compile(r"^(?:true|Tr
 _Loader.add_constructor("!secret", lambda loader, node: Secret(loader.construct_scalar(node)))
 
 
+def parse_value(text: str) -> Any:
+    """A value typed on the command line, read like YAML in the config: '30' -> 30,
+    'true' -> True, '{name: x}' -> dict, 'on' stays text (YAML 1.2 booleans)."""
+    try:
+        return yaml.load(text, Loader=_Loader)
+    except yaml.YAMLError:
+        return text
+
+
 def _read_yaml(path: Path, loader=_Loader) -> Any:
     try:
         return yaml.load(path.read_text(encoding="utf-8"), Loader=loader)
@@ -95,9 +104,8 @@ def check_references(cfg: Config) -> list[str]:
     for kind, idx, zone in cfg.lighting.zones():
         for ref in [zone.state] if zone.state else []:
             p, n = ref.split(".", 1)
-            if p in REGISTRY and n not in REGISTRY[p].states:
-                problems.append(f"lighting.{kind}: {p} has no state {n!r} "
-                                f"(available: {', '.join(REGISTRY[p].states) or 'none'})")
+            if p in REGISTRY and (err := REGISTRY[p].check_state(n, cfg.plugins.get(p) or {})):
+                problems.append(f"lighting.{kind}: {err}")
         if (zone.on or zone.unknown) and not zone.state:
             problems.append(f"lighting.{kind}: 'on'/'unknown' need a 'state' to switch on")
     for where, kd in cfg.iter_defs():
@@ -122,13 +130,12 @@ def check_references(cfg: Config) -> list[str]:
         if kd.state:
             refs.append(kd.state)
         for f in kd.faces():
-            for s in (f.text, f.label):
+            for s in (f.text, f.label, f.image):
                 refs += [f"{p}.{n}" for p, n, _ in TEMPLATE_RE.findall(s or "")]
         for ref in refs:
             p, n = ref.split(".", 1)
-            if p in REGISTRY and n not in REGISTRY[p].states:
-                problems.append(f"{where}: {p} has no state {n!r} "
-                                f"(available: {', '.join(REGISTRY[p].states) or 'none'})")
+            if p in REGISTRY and (err := REGISTRY[p].check_state(n, cfg.plugins.get(p) or {})):
+                problems.append(f"{where}: {err}")
         if (kd.face_on or kd.face_unknown) and not kd.state:
             problems.append(f"{where}: face_on/face_unknown need a 'state' to switch on")
     return problems
@@ -140,7 +147,7 @@ def _resolve_images(cfg: Config, base: Path) -> list[str]:
     problems = []
     for where, kd in cfg.iter_defs():
         for face in kd.faces():
-            if face.image and not is_url(face.image):
+            if face.image and not is_url(face.image) and not TEMPLATE_RE.search(face.image):
                 p = Path(os.path.expandvars(face.image)).expanduser()
                 if not p.is_absolute():
                     p = base / p
