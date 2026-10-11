@@ -115,11 +115,20 @@ def test_fader_soft_takeover(write, recorder):
     plugin = rec(recorder)
     plugin.emit(value_state("app", "discord.exe"), 50); eng.step()
     f = devs["faders"]
+    f.push("slide", 0, 0); eng.step()                     # first report = where it sits: never applied
     f.push("slide", 0, 10); eng.step()                    # far from 50: ignored
     f.push("slide", 0, 30); eng.step()                    # still below: ignored
     f.push("slide", 0, 60); eng.step()                    # crossed 50: picked up
     f.push("slide", 0, 70); eng.step()
     assert plugin.calls == [("set", "app", "discord.exe", 60), ("set", "app", "discord.exe", 70)]
+
+
+def test_fader_does_not_take_over_unknown_value(write, recorder):
+    eng, devs, _ = make(write)
+    f = devs["faders"]
+    for v in (0, 10, 50, 90):                             # app volume never published
+        f.push("slide", 0, v); eng.step()
+    assert rec(recorder).calls == []
 
 
 def test_sections_inherit_from_start_page_unless_overridden(write, recorder):

@@ -349,10 +349,15 @@ class Engine:
         current = self.state.get(f"{p}.{value_state(n, fd.arg)}")
         last = self._fader_last.get(idx)
         self._fader_last[idx] = value
+        if last is None:
+            return       # first report after connecting: just where the fader sits, not a movement
         if not self._fader_caught.get(idx):
-            crossed = last is not None and current is not None and (last - current) * (value - current) <= 0
-            if current is None or abs(value - current) <= TAKEOVER_WINDOW or crossed:
+            if current is None:
+                return   # value unknown (app not running?): don't take over blindly
+            crossed = (last - current) * (value - current) <= 0
+            if abs(value - current) <= TAKEOVER_WINDOW or crossed:
                 self._fader_caught[idx] = True
+                log.info("fader %d took over %s at %d (was %s)", idx + 1, fd.target, value, current)
             else:
                 return   # soft takeover: don't jump until the fader reaches the current value
         try:
@@ -537,3 +542,6 @@ class Engine:
                 if k.down:
                     for i, ev in tracker.edge(idx, False, now):
                         self._fire(kind, i, ev)
+        if kind == "faders":             # positions must be re-learned after reconnecting
+            self._fader_last.clear()
+            self._fader_caught.clear()
