@@ -15,7 +15,9 @@ It runs on **Windows** and **macOS**. This is an unofficial tool, tested with re
 
 ## Install
 
-You need Python 3.11 or newer.
+- **Windows:** run the installer, `hubdeck-<version>-windows-x64.msi` from the [releases](https://github.com/bell0x07/hubdeck/releases). See [Windows](#windows).
+- **macOS:** the app, `hubdeck-<version>-macos-arm64.zip` from the releases. See [macOS](#macos).
+- **From source** on either: you need Python 3.11 or newer.
 
 **Windows** (PowerShell):
 
@@ -48,12 +50,42 @@ hubdeck init     # writes an example config.yaml and secrets.yaml
 hubdeck run      # runs in the foreground (Ctrl+C to quit)
 ```
 
-Run them as `.\.venv\Scripts\hubdeck.exe …` on Windows and `.venv/bin/hubdeck …` on macOS, or activate the venv first.
+From source, run them as `.\.venv\Scripts\hubdeck.exe …` on Windows and `.venv/bin/hubdeck …` on macOS, or activate the venv first. The Windows installer puts `hubdeck` on the PATH.
 
 - **Close MasterHUB first, including its background daemon** (Windows). It drives the same modules, so the two would fight over the screens and lights.
 - **For everyday use, run `hubdeck-tray`.** Clicking the tray icon opens the editor (on macOS it opens the menu, where "Open editor" is the first item). The menu can also switch pages, reload, open the log and open this repo.
-- **To start at login on Windows,** put a shortcut to `.venv\Scripts\hubdeck-tray.exe` in `shell:startup`.
+- **To start at login on Windows,** see [Windows](#windows) for the installed app. From source, put a shortcut to `.venv\Scripts\hubdeck-tray.exe` in `shell:startup`.
 - **To start at login on macOS,** see [macOS](#macos) below.
+
+## Windows
+
+### The hubdeck app
+
+1. Download `hubdeck-<version>-windows-x64.msi` from the [releases](https://github.com/bell0x07/hubdeck/releases) (or a development build from the CI artifacts) and run it. It installs for your user only, so it doesn't ask for admin rights.
+   - The installer isn't signed, so **SmartScreen** stops it the first time ("Windows protected your PC"). Click **More info › Run anyway**.
+2. Start **hubdeck** from the Start menu. It lives in the tray, and clicking the icon opens the editor.
+3. `hubdeck` is on your PATH for `hubdeck send …`, `hubdeck list` and the rest. Open a new terminal after installing.
+4. **To start at login,** press Win+R, run `shell:startup`, and put a shortcut to `%LOCALAPPDATA%\Programs\hubdeck\hubdeck-tray.exe` there. Copying the **hubdeck** shortcut from the Start menu works too.
+
+- **Upgrading:** quit hubdeck from the tray, then run the new MSI. It replaces the installed version, including a development build of the same version. An older version refuses to install over a newer one.
+- **Uninstalling:** Settings › Apps › Installed apps › hubdeck. Your config in `%APPDATA%\hubdeck` stays.
+- **What's installed:** `%LOCALAPPDATA%\Programs\hubdeck` holds `hubdeck-tray.exe` (the tray app), `hubdeck.exe` (the command line) and hubdeck's own Python. `hubdeck-<version>-windows-x64.zip` is the same folder, to run from anywhere without installing.
+
+### Building the app
+
+Like the macOS app, it's built on **Linux**, in Docker or GitLab CI, with no Windows or Visual Studio involved. It's made of:
+- a standalone Python ([python-build-standalone](https://github.com/astral-sh/python-build-standalone)) and the dependencies' Windows wheels
+- `hubdeck.exe` and `hubdeck-tray.exe`, small launchers cross-compiled with **zig**. They run that Python inside their own process, so Windows sees hubdeck (its name and icon, e.g. in Task Manager) rather than python.exe.
+- the MSI, made with **wixl** from msitools
+
+Everything is in `packaging/windows/`, and `.gitlab-ci.yml` builds it on every push. In PowerShell, from the repository root:
+
+```powershell
+docker build -t hubdeck-windows-builder -f packaging/windows/Dockerfile packaging/windows
+docker run --rm -v "${PWD}:/src" -w /src hubdeck-windows-builder
+```
+
+That writes `dist\hubdeck-<version>-windows-x64.msi` and the zip. Without Docker, `python packaging/windows/build.py --no-msi` builds just the zip, since there's no wixl for Windows. It needs Python 3.13 with `pip install ziglang pillow packaging`.
 
 ## macOS
 
@@ -133,15 +165,15 @@ rcodesign generate-self-signed-certificate --person-name "hubdeck" --validity-da
 
 Then, in GitLab › Settings › CI/CD › Variables, add `MACOS_SIGN_PEM` with **type File**, and paste the file's contents as the value. A `.p12` works too (`MACOS_SIGN_P12` plus `MACOS_SIGN_P12_PASSWORD`), for local builds.
 
-### Releasing
+## Releasing
 
 The version lives in one place, `__version__` in `src/hubdeck/__init__.py`.
 
-- **Branch pipelines** build a development version named after the branch, e.g. `hubdeck-0.1.0-feat-macos-app.48-macos-arm64.zip`. It's kept as a CI artifact for 30 days and never released. On the job page, *Browse* › click the zip to download it as is.
+- **Branch pipelines** build a development version named after the branch, e.g. `hubdeck-0.2.0-feat-windows-app.48-windows-x64.msi` and `hubdeck-0.2.0-feat-windows-app.48-macos-arm64.zip`. They're kept as CI artifacts for 30 days and never released. On the job page, *Browse* › click a file to download it as is.
 - **A release:**
   1. Bump `__version__` and merge to `main`.
-  2. Tag that commit `vX.Y.Z`, e.g. `git tag -a v0.2.0 -m "What's new" && git push gitlab v0.2.0`, or **Code › Tags › New tag** in GitLab. The tag message becomes the release notes.
-  3. The tag pipeline tests, builds and publishes the release on **GitLab** (the zip goes to the package registry) and on **GitHub**. A tag that doesn't match `__version__` fails the build.
+  2. Tag that commit `vX.Y.Z`, e.g. `git tag -a v0.2.0 -m "What's new" && git push origin v0.2.0` (with GitLab as `origin`), or **Code › Tags › New tag** in GitLab. The tag message becomes the release notes.
+  3. The tag pipeline tests, builds and publishes the release on **GitLab** (the files go to the package registry) and on **GitHub**: the macOS zip, and the Windows MSI and zip. A tag that doesn't match `__version__` fails the build.
 - **Setup, once:**
   - protect `v*` under GitLab › Settings › Repository › **Protected tags**
   - add a **masked, protected** CI variable `GITHUB_TOKEN`, a GitHub token for the repository with *Contents: read and write* (the mirror's token works)

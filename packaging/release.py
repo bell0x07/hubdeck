@@ -1,11 +1,12 @@
 """Publish a tagged build: GitLab release (+ package registry) and GitHub release.
 
-Run by the `release` CI job for tags vX.Y.Z, after the build jobs left their zips in dist/.
+Run by the `release` CI job for tags vX.Y.Z, after the build jobs left their files in dist/:
+the macOS zip, and the Windows MSI and zip.
 
-  GitLab   the zips go to the generic package registry, and the release links to them
+  GitLab   the files go to the generic package registry, and the release links to them
            (CI_JOB_TOKEN: nothing to set up).
   GitHub   with GITHUB_TOKEN (a token for the repository with Contents: read and write),
-           a release for the same commit with the zips attached. GITHUB_REPOSITORY picks
+           a release for the same commit with the files attached. GITHUB_REPOSITORY picks
            the repository (default bell0x07/hubdeck).
 
 Running it again for the same tag replaces the files instead of failing.
@@ -23,6 +24,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "hubdeck"
+FILES = ["macos-arm64.zip", "macos-x86_64.zip", "windows-x64.msi", "windows-x64.zip"]   # hubdeck-<version>-...
+CONTENT_TYPES = {".zip": "application/zip", ".msi": "application/x-msi"}
 
 
 def request(method: str, url: str, headers: dict, body=None, ok=(200, 201, 204)):
@@ -93,7 +96,7 @@ def github(tag: str, version: str, files: list[Path]):
     upload = rel["upload_url"].split("{", 1)[0]
     for f in files:
         status, reply = request("POST", f"{upload}?name={urllib.parse.quote(f.name)}",
-                                {**auth, "Content-Type": "application/zip"}, f.read_bytes())
+                                {**auth, "Content-Type": CONTENT_TYPES[f.suffix]}, f.read_bytes())
         if status not in (200, 201):
             sys.exit(f"GitHub: uploading {f.name} failed ({status}): {reply}")
         print(f"GitHub: uploaded {f.name}")
@@ -105,9 +108,10 @@ def main():
     if not tag:
         sys.exit("release.py runs for tags only (CI_COMMIT_TAG)")
     version = tag.removeprefix("v")
-    files = sorted((ROOT / "dist").glob(f"hubdeck-{version}-macos-*.zip"))   # never a dev build ({version}-<branch>...)
+    # exact names: never a dev build, e.g. hubdeck-{version}-windows-app.48-windows-x64.msi
+    files = [f for f in (ROOT / "dist" / f"hubdeck-{version}-{name}" for name in FILES) if f.exists()]
     if not files:
-        sys.exit(f"nothing to release: no dist/hubdeck-{version}-macos-*.zip")
+        sys.exit(f"nothing to release: no dist/hubdeck-{version}-{{{','.join(FILES)}}}")
     gitlab(tag, version, files)
     github(tag, version, files)
 

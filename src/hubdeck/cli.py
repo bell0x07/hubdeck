@@ -176,7 +176,8 @@ def cmd_send(args):
             if len(words) < 3:
                 sys.exit("usage: hubdeck send set <name> <value, or - for the text on stdin>")
             if words[2:] == ["-"]:      # literal text, e.g. a Shortcut's multi-line result
-                value = sys.stdin.read().strip()
+                # UTF-8 whatever the locale: on Windows sys.stdin would decode a pipe as cp1250 etc.
+                value = sys.stdin.buffer.read().decode("utf-8-sig", errors="replace").strip()
             else:
                 value = parse_value(" ".join(words[2:]))
             send({"cmd": "set", "name": words[1], "value": value})

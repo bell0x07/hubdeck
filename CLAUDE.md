@@ -34,6 +34,9 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
 - **`packaging/macos/`:** builds hubdeck.app on Linux (Docker, `.gitlab-ci.yml`). `build.py` unpacks python-build-standalone, pip-installs the macOS wheels (`--platform`; macOS-only dependencies are named explicitly, since pip judges markers by the build machine), cross-compiles `launcher.c` with zig and signs with rcodesign. The launcher loads `libpython` in-process (so macOS sees the app's identity) and runs `hubdeck._bundle`: no arguments = tray, otherwise the CLI; `HUBDECK_PYTHON=1` makes it plain Python (used by the accent-colour helper). Bundle id: `hubdeck._bundle.BUNDLE_ID`. Inside the app, notifications go through UNUserNotificationCenter and the tray offers "Start at login" (SMAppService).
   - The version's only source is `hubdeck.__version__` (pyproject reads it). Tags `vX.Y.Z` must match it and build X.Y.Z; branch builds are `<version>-<branch>.<pipeline>`. `packaging/release.py` (CI `release` job, tags only) publishes to the GitLab package registry and release, and to GitHub with `GITHUB_TOKEN`. Branch builds are never released.
 - **`cli.py` / `cli_probe.py`:** the `hubdeck` command, including the hidden `probe` tools. `tray.py` is `hubdeck-tray`.
+- **`packaging/`:** the macOS app and the Windows MSI and zip, both cross-built on Linux (Docker or GitLab CI) from python-build-standalone, the target's wheels and zig-compiled launchers. `common.py` is shared by both builds; `release.py` publishes `vX.Y.Z` tags to GitLab and GitHub.
+  - Windows: the launchers load `python\python313.dll` in-process, and `python313._pth` sets `sys.path` and isolates it from `PYTHON*` variables.
+  - The MSI is built with wixl 0.106 (Debian trixie). It leaves file versions out, so a component's key path must never be an .exe, .dll or .pyd, or upgrades lose those files. It also has `Permanent` backwards on `<Environment>`.
 
 ## Hardware facts that matter (all verified)
 

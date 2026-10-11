@@ -1,4 +1,5 @@
-# hubdeck CI: tests on Linux, and hubdeck.app for macOS built on Linux (no Mac runner needed).
+# hubdeck CI: tests on Linux, and the macOS and Windows apps built on Linux (no Mac or Windows
+# runner needed): hubdeck.app, and the Windows MSI and zip.
 #
 # Optional CI/CD variables for signing (Settings > CI/CD > Variables), see packaging/macos/build.py:
 #   MACOS_SIGN_PEM            File   certificate + private key, PEM (self-signed is enough for
@@ -10,6 +11,7 @@
 #
 # Branch pipelines build a development version named after the branch (CI artifact only);
 # a tag vX.Y.Z (matching hubdeck.__version__) builds X.Y.Z and releases it on GitLab and GitHub.
+# Windows builds aren't signed: Windows SmartScreen asks once per download (More info > Run anyway).
 
 stages: [test, build, release]
 
@@ -44,10 +46,26 @@ macos-app:
     expose_as: macOS app          # merge requests link to it; click the zip there to download it as is
     expire_in: 30 days
 
+windows-app:
+  stage: build
+  image: python:3.13.7-slim-trixie      # for wixl 0.106: bookworm's 0.101 can't put hubdeck on the PATH
+  cache:
+    key: windows-app
+    paths: [.cache/pip, build/windows-cache]
+  script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends wixl > /dev/null
+    - pip install -q ziglang==0.16.0 "pillow>=10.1" "packaging>=24"     # as in packaging/windows/Dockerfile
+    - python packaging/windows/build.py
+  artifacts:
+    name: "hubdeck-windows-$CI_COMMIT_REF_SLUG"
+    paths: [dist/]
+    expose_as: Windows app
+    expire_in: 30 days
+
 release:
   stage: release
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
-  needs: [macos-app]
+  needs: [macos-app, windows-app]
   script:
     - python packaging/release.py
