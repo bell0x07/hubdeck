@@ -74,6 +74,23 @@ def keep_original_spacing(old: str, new: str) -> str:
     return "\n".join(out) + ("\n" if new.endswith("\n") else "")
 
 
+def merge_into(node: CommentedMap, value: dict) -> CommentedMap:
+    """Update an existing mapping in place from a plain dict, so keys that survive keep their
+    position, style and comments. Keys missing from `value` are removed."""
+    for key in [k for k in node if str(k) not in {str(x) for x in value}]:
+        del node[key]
+    existing = {str(k): k for k in node}
+    for k, v in value.items():
+        key = existing.get(str(k), int(k) if isinstance(k, str) and k.isdigit() and
+                           any(isinstance(x, int) for x in node) else k)
+        old = node.get(key)
+        if isinstance(old, CommentedMap) and isinstance(v, dict) and set(v) != {"$secret"}:
+            merge_into(old, v)
+        elif to_plain(old) != v or key not in node:
+            node[key] = from_plain(v)
+    return node
+
+
 def _is_leaf(value: Any) -> bool:
     return not isinstance(value, (dict, list)) or (isinstance(value, dict) and "$secret" in value)
 
@@ -108,7 +125,9 @@ class ConfigDoc:
 
     # -- io ----------------------------------------------------------------
     def load(self):
-        text = self.path.read_text(encoding="utf-8") if self.path.exists() else ""
+        raw = self.path.read_bytes() if self.path.exists() else b""
+        self.newline = "\r\n" if b"\r\n" in raw else "\n"      # keep the file's own line endings
+        text = raw.decode("utf-8").replace("\r\n", "\n")
         self.original = text
         self.data = self.yaml.load(text) or CommentedMap()
 
@@ -141,7 +160,7 @@ class ConfigDoc:
             self.load()           # drop the rejected in-memory change
             return err
         tmp = self.path.with_suffix(".yaml.tmp")
-        tmp.write_text(text, encoding="utf-8")
+        tmp.write_bytes(text.replace("\r\n", "\n").replace("\n", self.newline).encode("utf-8"))
         os.replace(tmp, self.path)
         self.load()
         return None
@@ -199,6 +218,10 @@ class ConfigDoc:
     def set_item(self, page: str, section: str, num: int | None, value: Any):
         """value: plain dict, a ruamel node, or None to delete."""
         node = self.page_node(page, create=True)
+        existing = self.get_item(page, section, num)
+        if isinstance(value, dict) and not isinstance(value, CommentedMap) and isinstance(existing, CommentedMap):
+            merge_into(existing, value)          # edit in place: keeps comments inside the item
+            return
         if value is not None and not isinstance(value, (CommentedMap, CommentedSeq)):
             value = from_plain(value)
         if section == "dial":
@@ -230,6 +253,10 @@ class ConfigDoc:
     def set_global(self, name: str, value: Any):
         if value is None or value == {}:
             self.data.pop(name, None)
+            return
+        existing = self.data.get(name)
+        if isinstance(value, dict) and not isinstance(value, CommentedMap) and isinstance(existing, CommentedMap):
+            merge_into(existing, value)
             return
         if not isinstance(value, (CommentedMap, CommentedSeq)):
             value = from_plain(value, key_ints=False)

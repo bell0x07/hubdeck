@@ -98,6 +98,16 @@ def summary(section: str, raw: Any) -> str:
     return " · ".join(str(x) for x in (label, action or "") if x)
 
 
+class _HTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        import sys
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            return          # browsers drop idle keep-alive connections; not worth a traceback
+        super().handle_error(request, client_address)
+
+
 class GuiServer:
     def __init__(self, source: ConfigSource, engine=None, port: int = 8765):
         self.source = source
@@ -108,10 +118,9 @@ class GuiServer:
         self.lock = threading.Lock()
         handler = type("Handler", (_Handler,), {"app": self})
         try:
-            self.httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            self.httpd = _HTTPServer(("127.0.0.1", port), handler)
         except OSError:
-            self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)   # port taken: any free one
-        self.httpd.daemon_threads = True
+            self.httpd = _HTTPServer(("127.0.0.1", 0), handler)   # port taken: any free one
         self.thread: threading.Thread | None = None
 
     @property
