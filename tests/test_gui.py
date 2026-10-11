@@ -62,7 +62,7 @@ def test_hand_aligned_lines_keep_their_spacing(tmp_path):
             face:    {icon: microphone, label: MIC}      # aligned by hand
             face_on: {icon: microphone-off, label: OFF}
         """)
-    p.write_text(original, encoding="utf-8")
+    p.write_bytes(original.encode())     # LF on purpose (write_text would give CRLF on Windows)
     doc = ConfigDoc(p)
     doc.set_item("main", "keys", 2, {"action": "rec.b", "face": {"label": "#2", "bg": "#c81e28"}})
     assert doc.save() is None
@@ -70,7 +70,37 @@ def test_hand_aligned_lines_keep_their_spacing(tmp_path):
     assert text.startswith(original)                       # untouched lines byte-identical
     assert 'bg: "#c81e28"' in text and 'label: "#2"' in text
     doc.set_item("main", "keys", 2, None)
-    assert doc.save() is None and p.read_text(encoding="utf-8") == original
+    assert doc.save() is None and p.read_bytes() == original.encode()      # LF kept (no CRLF on Windows)
+
+
+def test_editing_settings_keeps_comments_of_untouched_entries(tmp_path):
+    p = tmp_path / "config.yaml"
+    original = ("modules:\n"
+                "  keys:    {rotate: 0}     # the big one\n"
+                "  faders:  {rotate: 270}   # sideways\n"
+                "\n"
+                "keys:\n"
+                "  1:\n"
+                "    action: rec.a     # keep this comment\n"
+                "    face: {label: One}\n")
+    p.write_bytes(original.encode())
+    doc = ConfigDoc(p)
+    doc.set_global("modules", {"keys": {"rotate": 90}, "faders": {"rotate": 270}})
+    doc.set_item("main", "keys", 1, {"action": "rec.a", "face": {"label": "Uno"}})
+    assert doc.save() is None
+    text = p.read_text(encoding="utf-8")
+    assert "# sideways" in text and "# the big one" in text and "# keep this comment" in text
+    assert "rotate: 90" in text and "Uno" in text and "\n\nkeys:" in text.replace("\r\n", "\n")
+
+
+def test_crlf_files_stay_crlf(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_bytes(b"keys:\r\n  1: {action: rec.a}\r\n")
+    doc = ConfigDoc(p)
+    doc.set_item("main", "keys", 2, {"action": "rec.b"})
+    assert doc.save() is None
+    data = p.read_bytes()
+    assert data.count(b"\r\n") == data.count(b"\n") and b"2:" in data
 
 
 def test_live_mode_uses_engine_state(cfg_path, recorder):
