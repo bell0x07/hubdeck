@@ -361,10 +361,31 @@ class Lighting(_Model):
 
 class Device(_Model):
     ownership: Literal["shared", "exclusive"] = "shared"
-    rotate: Literal[0, 90, 180, 270] = 0
-    brightness: int | None = Field(default=None, ge=0, le=100)        # key module backlight
-    dial_brightness: int | None = Field(default=None, ge=0, le=100)   # dial backlight
     reassert_seconds: float = Field(default=5, ge=0)
+
+
+Rotation = Literal[0, 90, 180, 270]
+
+
+class ModuleSettings(_Model):
+    rotate: Rotation = 0   # clockwise, from the module's default mounting
+
+
+class ScreenSettings(ModuleSettings):
+    brightness: int | None = Field(default=None, ge=0, le=100)   # backlight; null = leave as is
+
+
+class Modules(_Model):
+    """Per-module mounting and settings."""
+    keys: ScreenSettings = ScreenSettings()
+    dial: ScreenSettings = ScreenSettings()
+    knobs: ModuleSettings = ModuleSettings()
+    rollers: ModuleSettings = ModuleSettings()
+    faders: ModuleSettings = ModuleSettings()
+
+    def rotate(self, kind: str) -> int:
+        settings = getattr(self, kind, None)
+        return settings.rotate if settings is not None else 0
 
 
 class Defaults(_Model):
@@ -377,6 +398,7 @@ class Defaults(_Model):
 
 class Config(_Model):
     device: Device = Device()
+    modules: Modules = Modules()
     defaults: Defaults = Defaults()
     plugins: dict[str, dict[str, Any]] = {}
     lighting: Lighting = Lighting()

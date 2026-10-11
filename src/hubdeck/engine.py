@@ -13,6 +13,7 @@ from .config import Config, ConfigError, ConfigSource, KeyDef
 from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef
 from .device import DeviceError
 from .device.manager import RETRY_SECONDS, DeviceManager, present_kinds
+from .device import layout
 from .device.modules import Event
 from .gestures import GestureTracker
 from .lighting import LightingController
@@ -206,7 +207,9 @@ class Engine:
             if name not in self.plugins:
                 self._start_plugin(name, settings)
         self._watch_targets()
-        self._light_zones = cfg.lighting.zones()
+        # lighting zones are numbered like the controls; convert to module LED indexes
+        self._light_zones = [(kind, 0 if kind == "base" else layout.index_of(kind, i + 1, cfg.modules.rotate(kind)), z)
+                             for kind, i, z in cfg.lighting.zones()]
         self.lighting.forget()
         self.images.forget()
         self._jpeg_cache.clear()
@@ -215,10 +218,11 @@ class Engine:
                 log.warning("pages.%s.match: app-based page switching is not implemented yet; ignored", name)
         # keys we stop owning get blanked once
         new_owned = cfg.owned_keys() if "keys" in cfg.used_modules() else set()
-        if self.device:
+        if self.device and old is not None:
             for num in self._owned - new_owned:
-                self._write("keys", num - 1, BLANK, force=True)
-                self.shown.pop(("keys", num - 1), None)
+                idx = layout.index_of("keys", num, old.modules.keys.rotate)
+                self._write("keys", idx, BLANK, force=True)
+                self.shown.pop(("keys", idx), None)
         self._owned = new_owned
         # modules: open what the config uses, release the rest (MasterHUB may have them)
         self.manager.wanted = cfg.used_modules()
@@ -226,11 +230,13 @@ class Engine:
             if kind not in self.manager.wanted:
                 self.manager.drop(kind)
         stack = [p for p in self.page_stack if p in cfg.pages] or [cfg.start_page]
-        if old is None or old.device.brightness != cfg.device.brightness \
-                or old.device.dial_brightness != cfg.device.dial_brightness:
+        if old is None or (old.modules.keys.brightness, old.modules.dial.brightness) != \
+                (cfg.modules.keys.brightness, cfg.modules.dial.brightness):
             self._apply_brightness()
-        if old is not None and old.device.rotate != cfg.device.rotate:
+        if old is not None and old.modules != cfg.modules:
             self._jpeg_cache.clear()
+            self.shown.clear()            # numbering may have moved: repaint everything
+            self.lighting.forget()
         self._set_pages(stack, force=True)
 
     def _watch_targets(self):
@@ -270,13 +276,15 @@ class Engine:
 
     # -- pages -------------------------------------------------------------
     def def_for(self, kind: str, index: int):
-        """The definition behind a control on the current page (index is 0-based)."""
+        """The definition behind a control on the current page. `index` is the module's own
+        0-based index; config numbers follow the mounted orientation (device/layout.py)."""
         page = self.current_page
-        if kind == "keys":
-            return self.cfg.pages[page].keys.get(index + 1)
         if kind == "dial":
             return self.cfg.section(page, "dial")
-        return self.cfg.section(page, kind).get(index + 1)
+        number = layout.number_of(kind, index, self.cfg.modules.rotate(kind))
+        if kind == "keys":
+            return self.cfg.pages[page].keys.get(number)
+        return self.cfg.section(page, kind).get(number)
 
     def _set_pages(self, stack: list[str], force: bool = False):
         changed = stack != self.page_stack
@@ -320,6 +328,8 @@ class Engine:
         if not isinstance(cd, ControlDef) or cd.turn is None:
             return
         t = cd.turn
+        if kind == "rollers":           # rolling direction follows the mounting
+            steps *= layout.axis_sign(self.cfg.modules.rotate(kind))
         if t.invert:
             steps = -steps
         if t.target:
@@ -340,8 +350,8 @@ class Engine:
         fd = self.def_for(kind, idx)
         if fd is None:
             return
-        if fd.invert:
-            value = 100 - value
+        if (layout.axis_sign(self.cfg.modules.rotate(kind)) < 0) != fd.invert:
+            value = 100 - value           # increase up/right whatever the mounting
         p, n = fd.target.split(".", 1)
         plugin = self.plugins.get(p)
         if plugin is None:
@@ -456,7 +466,7 @@ class Engine:
 
     def _encode(self, kind: str, face: RenderFace) -> bytes:
         dev = self.manager.devices[kind]
-        rotate = self.cfg.device.rotate if kind == "keys" else 0
+        rotate = layout.image_rotation(self.cfg.modules.rotate(kind))
         key = (kind, face, rotate)
         data = self._jpeg_cache.get(key)
         if data is None:
@@ -484,8 +494,9 @@ class Engine:
                 continue
             try:
                 if kind == "keys":
+                    rot = self.cfg.modules.keys.rotate
                     for num in sorted(self._owned):
-                        self._write(kind, num - 1, self.resolve_face(num), self._force)
+                        self._write(kind, layout.index_of(kind, num, rot), self.resolve_face(num), self._force)
                 else:
                     self._write(kind, 0, self.face_for(self.def_for("dial", 0)), self._force)
             except DeviceError as e:
@@ -522,7 +533,7 @@ class Engine:
         return None
 
     def _apply_brightness(self, only: str | None = None):
-        levels = {"keys": self.cfg.device.brightness, "dial": self.cfg.device.dial_brightness}
+        levels = {"keys": self.cfg.modules.keys.brightness, "dial": self.cfg.modules.dial.brightness}
         for kind, level in levels.items():
             dev = self.manager.devices.get(kind)
             if dev is None or level is None or (only and kind != only):

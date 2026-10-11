@@ -27,25 +27,28 @@ def cmd_test(args):
     from .device import M4315, DeviceError
     from .render.faces import number_face
 
+    from .device import layout
+
     rotate = args.rotate
     if rotate is None:
         try:
-            rotate = _source(args).load().device.rotate
+            rotate = _source(args).load().modules.keys.rotate
         except Exception:
             rotate = 0
     try:
         dev = M4315()
         dev.set_software_mode(True)
         for i in range(dev.key_count):
-            dev.set_image(i, dev.encode(number_face(i + 1, dev.image_size, rotate)))
+            number = layout.number_of("keys", i, rotate)
+            dev.set_image(i, dev.encode(number_face(number, dev.image_size, layout.image_rotation(rotate))))
     except DeviceError as e:
         sys.exit(f"error: {e}")
-    print("Every key should now show its number (yellow ^ marks the top).")
+    print(f"Every key should now show its number (yellow ^ marks the top), mounted at rotate: {rotate}.")
     print("Press keys to see their numbers here. Ctrl+C to quit.")
     try:
         while True:
             for idx, pressed in dev.poll():
-                print(f"key {idx + 1} {'down' if pressed else 'up'}")
+                print(f"key {layout.number_of('keys', idx, rotate)} {'down' if pressed else 'up'}")
             time.sleep(0.02)
     except KeyboardInterrupt:
         pass

@@ -108,8 +108,8 @@ def test_engine_lighting_follows_states_and_values(write, recorder):
     plugin.emit(value_state("level", None), 100)
     clock.t += 1; eng.step()
     assert base.leds[-2:] == [("mode", 0, "breathing"), ("color", 0, (255, 0, 0))]
-    assert ("brightness", 0, 100) in knobs.leds                  # knob 1 follows its value
-    assert ("brightness", 1, 10) in knobs.leds                   # knob 2 has no target
+    assert ("brightness", 2, 100) in knobs.leds                  # knob 1 (top, LED 2) follows its value
+    assert ("brightness", 0, 10) in knobs.leds                   # knob 2 (LED 0) has no target
 
 
 @pytest.mark.parametrize("body, message", [
