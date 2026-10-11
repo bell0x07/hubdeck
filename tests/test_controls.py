@@ -202,7 +202,8 @@ def test_knobs_driver_decodes_and_maps_leds():
     d = _driver(KnobsModule, ["012a0500000301ffff", "012a050000 03ff00ff", "012a0500030300 0100", "012a0500030300 0000"],
                 0x2A)
     assert d.poll() == [Event("turn", 0, 1), Event("turn", 1, -1), Event("key", 1, True), Event("key", 1, False)]
-    assert [d._led_index(i) for i in range(3)] == [2, 0, 1]   # top, bottom-left, bottom-right
+    assert [d._led_index(i) for i in range(3)] == [0, 1, 2]   # same order as the inputs
+    assert d._led_index(None) == 0xFF                         # all knobs
 
 
 def test_rollers_driver():
