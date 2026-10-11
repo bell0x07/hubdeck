@@ -11,11 +11,10 @@ on real hardware:
 from __future__ import annotations
 
 import io
-import struct
 
 from PIL import Image
 
-from .hid import MODULE_TYPES, VID, HidModule, hid
+from .hid import MODULE_TYPES, VID, HidModule, build_chunked_reports, hid
 
 PID = 0x01FE
 KEY_COUNT = 15
@@ -29,24 +28,7 @@ def build_image_reports(index: int, jpeg: bytes) -> list[bytes]:
     """Split a JPEG into output reports (report 0x02, command 0x36)."""
     if not 0 <= index < KEY_COUNT:
         raise ValueError(f"key index must be 0..{KEY_COUNT - 1}")
-    reports = []
-    remaining = len(jpeg)
-    chunk_index = 0
-    while remaining > 0:
-        chunk_len = min(remaining, OUT_CHUNK_MAX)
-        report = bytearray(OUT_REPORT_LEN)
-        report[0] = 0x02
-        report[1] = 0x36
-        report[2:4] = struct.pack("<H", chunk_index)
-        report[4:6] = struct.pack("<H", chunk_len)
-        report[6] = index
-        report[7] = 1 if remaining <= OUT_CHUNK_MAX else 0
-        offset = len(jpeg) - remaining
-        report[8:8 + chunk_len] = jpeg[offset:offset + chunk_len]
-        reports.append(bytes(report))
-        chunk_index += 1
-        remaining -= chunk_len
-    return reports
+    return build_chunked_reports(0x36, jpeg, index, OUT_REPORT_LEN)
 
 
 def parse_key_report(data) -> list[bool] | None:

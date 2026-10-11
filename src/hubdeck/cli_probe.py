@@ -183,6 +183,67 @@ def cmd_swmode(args):
         dev.close()
 
 
+def _test_picture(size: int, fmt: str) -> bytes:
+    """Colour wheel + text, as JPEG (baseline 4:4:4) or BMP."""
+    import io
+    import math
+
+    from PIL import Image, ImageDraw
+
+    from .render.faces import _font
+    img = Image.new("RGB", (size, size), (0, 0, 0))
+    d = ImageDraw.Draw(img)
+    for a in range(0, 360, 6):
+        hue = Image.new("HSV", (1, 1), (int(a / 360 * 255), 255, 255)).convert("RGB").getpixel((0, 0))
+        d.pieslice([0, 0, size - 1, size - 1], a - 90, a - 84, fill=hue)
+    d.ellipse([size * 0.18, size * 0.18, size * 0.82, size * 0.82], fill=(20, 20, 26))
+    d.text((size / 2, size * 0.42), "hubdeck", font=_font(int(size * 0.12)), fill="white", anchor="mm")
+    d.text((size / 2, size * 0.58), f"{size}x{size} {fmt}", font=_font(int(size * 0.08)), fill=(60, 200, 110), anchor="mm")
+    d.text((size / 2, size * 0.08), "^", font=_font(int(size * 0.1)), fill=(255, 220, 0), anchor="mm")
+    out = io.BytesIO()
+    if fmt == "jpeg":
+        img.save(out, "JPEG", quality=85, subsampling=0, progressive=False, optimize=False)
+    else:
+        img.save(out, "BMP")
+    return out.getvalue()
+
+
+def cmd_image(args):
+    mtype = find_type(args.module)
+    if mtype.pid != 0x0206:
+        sys.exit("probe image currently supports the dial only (key images are sent by hubdeck itself)")
+    if args.file:
+        from PIL import Image
+        import io
+        img = Image.open(args.file).convert("RGB").resize((240, 240), Image.LANCZOS)
+        out = io.BytesIO()
+        img.save(out, "JPEG" if args.format == "jpeg" else "BMP", quality=85, subsampling=0)
+        data = out.getvalue()
+    else:
+        data = _test_picture(240, args.format)
+    if args.format == "bmp":
+        # the vendor DLL sends a 54-byte header + top-down 24-bit rows; flip BMP's bottom-up rows
+        width = int.from_bytes(data[18:22], "little", signed=True)
+        height = int.from_bytes(data[22:26], "little", signed=True)
+        row = width * 3
+        pixels = data[54:54 + row * abs(height)]
+        if height > 0:
+            pixels = b"".join(pixels[i:i + row] for i in range(len(pixels) - row, -1, -row))
+        data = data[:54] + pixels
+    from .device.hid import build_chunked_reports
+    reports = build_chunked_reports(0x45, data, 0, mtype.out_len)
+    print(f"{mtype.code}: {args.format} picture, {len(data)} bytes in {len(reports)} reports")
+    dev = HidModule(mtype)
+    try:
+        if args.swmode:
+            dev.set_feature(bytes([0x03, SW_MODE_CMD[mtype.pid], 0x01]))
+        start = time.perf_counter()
+        dev.write_many(reports)
+        print(f"sent in {(time.perf_counter() - start) * 1000:.0f} ms")
+    finally:
+        dev.close()
+
+
 def add_parser(sub):
     p = sub.add_parser("probe", description=__doc__,  # no help= : keeps it out of the main command list
                        formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -207,6 +268,13 @@ def add_parser(sub):
     q.add_argument("--yes", action="store_true", help="don't ask for confirmation")
     q.add_argument("--listen", type=float, default=0, metavar="SEC", help="print input reports for SEC seconds after")
     q.set_defaults(fn=cmd_send)
+
+    q = ps.add_parser("image", help="send a test picture (or a file) to the dial")
+    q.add_argument("module", help="dial")
+    q.add_argument("file", nargs="?", help="image file (default: built-in test pattern)")
+    q.add_argument("--format", choices=("jpeg", "bmp"), default="jpeg")
+    q.add_argument("--swmode", action="store_true", help="turn software mode on first")
+    q.set_defaults(fn=cmd_image)
 
     q = ps.add_parser("swmode", help="software mode on/off (screen modules)")
     q.add_argument("module", help=names)

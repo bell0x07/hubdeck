@@ -44,8 +44,20 @@ def test_unverified_commands_need_opt_in():
     dial = find_type("dial")
     check_write(dial, "feature", bytes([0x03, 0x49, 0x01]))                 # software mode: known
     with pytest.raises(UnsafeCommand, match="not verified"):
-        check_write(dial, "feature", bytes([0x03, 0x4C, 0x50]))
-    check_write(dial, "feature", bytes([0x03, 0x4C, 0x50]), unverified=True)
+        check_write(dial, "feature", bytes([0x03, 0x4E, 0x50]))             # unknown command
+    check_write(dial, "feature", bytes([0x03, 0x4E, 0x50]), unverified=True)
+
+
+def test_dial_commands_from_vendor_dll():
+    dial = find_type("dial")
+    for cmd in (0x45, 0x48, 0x4B, 0x4C, 0x4D):   # serial, fw recovery, factory data, factory reset, anim recovery
+        with pytest.raises(UnsafeCommand, match="denylist"):
+            check_write(dial, "feature", bytes([0x03, cmd]), unverified=True)
+    with pytest.raises(UnsafeCommand, match="denylist"):
+        check_write(dial, "output", bytes([0x02, 0x44]), unverified=True)   # firmware update
+    check_write(dial, "feature", bytes([0x03, 0x44, 0x32]))                 # backlight
+    check_write(dial, "feature", bytes([0x03, 0x46, 0xFF, 0, 0]))           # solid colour
+    check_write(dial, "output", bytes([0x02, 0x45]))                        # picture
 
 
 def test_known_safe_commands():
