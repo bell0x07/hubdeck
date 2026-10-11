@@ -100,12 +100,21 @@ class FakeTeams:
 
     def drop_client(self):
         self.connected.clear()
-        self.conn.close()
+        self._hang_up(self.conn)
 
     def close(self):
         self.srv.close()
         if self.conn:
-            self.conn.close()
+            self._hang_up(self.conn)
+
+    @staticmethod
+    def _hang_up(conn):
+        # shutdown first: on Linux, close() alone sends nothing while another thread is in recv()
+        try:
+            conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        conn.close()
 
     def next_message(self, timeout=2) -> dict:
         return self.received.get(timeout=timeout)
