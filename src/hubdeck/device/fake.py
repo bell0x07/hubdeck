@@ -45,3 +45,53 @@ class FakeKeyModule:
 
     def close(self):
         self.closed = True
+
+
+class FakeControls:
+    """Fake dial / knobs / rollers / faders / base: queue events, record LED writes."""
+
+    def __init__(self, kind: str):
+        from .modules import Event
+        self._Event = Event
+        self.kind = kind
+        self.image_size = 240
+        self.shape = "round" if kind == "dial" else "square"
+        self.images: dict[int, bytes] = {}
+        self.writes: list[int] = []
+        self.software_mode = False
+        self.brightness = None
+        self.leds: list[tuple] = []
+        self.closed = False
+        self._events = []
+
+    def push(self, kind: str, index: int, value):
+        self._events.append(self._Event(kind, index, value))
+
+    def set_software_mode(self, on=True):
+        self.software_mode = on
+
+    def set_brightness(self, percent):
+        self.brightness = percent
+
+    def encode(self, img: Image.Image) -> bytes:
+        return img.convert("RGB").tobytes()
+
+    def set_image(self, index, data):
+        self.images[index] = data
+        self.writes.append(index)
+
+    def set_led_mode(self, control, mode, save=False):
+        self.leds.append(("mode", control, mode))
+
+    def set_led_color(self, control, rgb, save=False):
+        self.leds.append(("color", control, tuple(rgb)))
+
+    def set_led_brightness(self, control, percent):
+        self.leds.append(("brightness", control, percent))
+
+    def poll(self):
+        events, self._events = self._events, []
+        return events
+
+    def close(self):
+        self.closed = True

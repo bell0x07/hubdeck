@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hubdeck"
 version = "0.1.0"
-description = "Stream-Deck-style tool for the Cooler Master MasterHub 15-key screen module"
+description = "Stream-Deck-style controller for the Cooler Master MasterHub modules (keys, dial, knobs, rollers, faders, RGB)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

@@ -27,25 +27,28 @@ def cmd_test(args):
     from .device import M4315, DeviceError
     from .render.faces import number_face
 
+    from .device import layout
+
     rotate = args.rotate
     if rotate is None:
         try:
-            rotate = _source(args).load().device.rotate
+            rotate = _source(args).load().modules.keys.rotate
         except Exception:
             rotate = 0
     try:
         dev = M4315()
         dev.set_software_mode(True)
         for i in range(dev.key_count):
-            dev.set_image(i, dev.encode(number_face(i + 1, dev.image_size, rotate)))
+            number = layout.number_of("keys", i, rotate)
+            dev.set_image(i, dev.encode(number_face(number, dev.image_size, layout.image_rotation(rotate))))
     except DeviceError as e:
         sys.exit(f"error: {e}")
-    print("Every key should now show its number (yellow ^ marks the top).")
+    print(f"Every key should now show its number (yellow ^ marks the top), mounted at rotate: {rotate}.")
     print("Press keys to see their numbers here. Ctrl+C to quit.")
     try:
         while True:
             for idx, pressed in dev.poll():
-                print(f"key {idx + 1} {'down' if pressed else 'up'}")
+                print(f"key {layout.number_of('keys', idx, rotate)} {'down' if pressed else 'up'}")
             time.sleep(0.02)
     except KeyboardInterrupt:
         pass
@@ -64,9 +67,11 @@ def cmd_validate(args):
         sys.exit(str(e))
     print(f"{src.path}: OK")
     print(f"  ownership: {cfg.device.ownership}, keys painted: {sorted(cfg.owned_keys())}")
+    print(f"  modules used: {', '.join(sorted(cfg.used_modules())) or 'none'}")
     for name, page in cfg.pages.items():
         mark = " (start)" if name == cfg.start_page else ""
-        print(f"  page {name}{mark}: keys {sorted(page.keys)}")
+        extra = [s for s in ("dial", "knobs", "rollers", "faders") if getattr(page, s)]
+        print(f"  page {name}{mark}: keys {sorted(page.keys)}" + (f", {', '.join(extra)}" if extra else ""))
     plugins = sorted(cfg.used_plugins() - {"page"})
     print(f"  plugins: {', '.join(plugins) or 'none'}")
     if args.verbose:
@@ -153,6 +158,8 @@ def main(argv=None):
     p.add_argument("--filled", action="store_true")
     p.set_defaults(fn=cmd_icons)
     sub.add_parser("where", help="show config, secrets and log paths").set_defaults(fn=cmd_where)
+    from .cli_probe import add_parser as add_probe_parser
+    add_probe_parser(sub)
 
     args = ap.parse_args(argv)
     args.fn(args)

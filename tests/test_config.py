@@ -53,7 +53,7 @@ def test_missing_secret(write):
     ("keys: {1: {face: {label: '{rec.missing}'}}}", "no state 'missing'"),
     ("keys: {1: {face_on: {bg: red}}}", "need a 'state'"),
     ("keys: {1: {colour: red}}", "colour"),
-    ("{}", "no keys defined"),
+    ("{}", "nothing defined"),
     ("keys: {1: {action: discord.mute}}\nplugins: {discord: {}}", "client_id is required"),
 ])
 def test_validation_errors(write, body, message):
@@ -76,6 +76,27 @@ def test_example_config_is_valid():
     from hubdeck.paths import EXAMPLE_CONFIG
     cfg = load_config(EXAMPLE_CONFIG)
     assert set(cfg.pages) == {"main", "media"}
+
+
+def test_example_config_commented_sections_are_valid(write):
+    """The commented-out dial/knobs/rollers/faders/lighting examples must work when uncommented."""
+    import re
+    from hubdeck.paths import EXAMPLE_CONFIG
+    out, uncomment = [], False
+    for line in EXAMPLE_CONFIG.read_text(encoding="utf-8").splitlines():
+        if re.match(r"^# lighting:|^\s+# (dial|knobs|rollers|faders):", line):
+            uncomment = True
+        elif uncomment and not re.match(r"^\s*#( |$)", line):
+            uncomment = False
+        if uncomment and not re.match(r"^\s*#\s*$", line):
+            line = re.sub(r"^(\s*)# ", r"\1", line, count=1)
+        elif uncomment:
+            line = ""
+        out.append(line)
+    text = "\n".join(out)
+    assert "\n    dial:" in text and "\nlighting:" in text
+    cfg = load_config(write("config.yaml", text))
+    assert {"dial", "knobs", "rollers", "faders", "base"} <= cfg.used_modules()
 
 
 def test_on_off_yes_no_stay_text(write):
