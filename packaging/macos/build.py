@@ -11,8 +11,10 @@ Needs: Python 3.13 with pip, Pillow and packaging; zig (`pip install ziglang`); 
 
 Signing, from the environment:
   (nothing)                       ad-hoc. macOS forgets the app's permissions on every update.
-  MACOS_SIGN_P12 / _PASSWORD      sign with this certificate (.p12 path + password). A
+  MACOS_SIGN_PEM                  sign with this certificate: a PEM file holding certificate and
+                                  private key (text, so it fits a GitLab "File" variable). A
                                   self-signed one is enough for permissions to survive updates.
+  MACOS_SIGN_P12 / _PASSWORD      the same as a .p12 file and its password.
   MACOS_NOTARY_API_KEY            App Store Connect API key (JSON from `rcodesign
                                   encode-app-store-connect-api-key`): also notarize and staple.
                                   Needs a Developer ID certificate.
@@ -212,33 +214,39 @@ def write_info_plist(app: Path, version: str, build: str):
 
 def sign(app: Path):
     rcodesign = shutil.which("rcodesign")
+    pem = os.environ.get("MACOS_SIGN_PEM")
     p12, password = os.environ.get("MACOS_SIGN_P12"), os.environ.get("MACOS_SIGN_P12_PASSWORD", "")
     notary_key = os.environ.get("MACOS_NOTARY_API_KEY")
+    certificate = pem or p12
     if not rcodesign:
-        if p12 or notary_key or not shutil.which("codesign"):
+        if certificate or notary_key or not shutil.which("codesign"):
             sys.exit("rcodesign is needed to sign (https://github.com/indygreg/apple-platform-rs)")
         log("signing ad-hoc with codesign")
         run(["codesign", "--force", "--deep", "--sign", "-", app])
         return
     cmd = [rcodesign, "sign"]
-    if p12:
+    pw = None
+    if pem:
+        log("signing with the certificate in MACOS_SIGN_PEM")
+        cmd += ["--pem-file", pem]
+    elif p12:
         log("signing with the certificate in MACOS_SIGN_P12")
         pw = Path(tempfile.mkstemp()[1])
         pw.write_text(password)
         cmd += ["--p12-file", p12, "--p12-password-file", pw]
-        if notary_key:      # notarization needs the hardened runtime and a timestamp
-            cmd += ["--for-notarization", "--code-signature-flags", "runtime",
-                    "--entitlements-xml-file", HERE / "entitlements.plist"]
-    else:
-        log("signing ad-hoc (set MACOS_SIGN_P12 for permissions that survive updates)")
+    if certificate and notary_key:      # notarization needs the hardened runtime and a timestamp
+        cmd += ["--for-notarization", "--code-signature-flags", "runtime",
+                "--entitlements-xml-file", HERE / "entitlements.plist"]
+    if not certificate:
+        log("signing ad-hoc (set MACOS_SIGN_PEM for permissions that survive updates)")
     try:
         run(cmd + [app])
     finally:
-        if p12:
+        if pw:
             pw.unlink(missing_ok=True)
     if notary_key:
-        if not p12:
-            sys.exit("notarizing needs a Developer ID certificate in MACOS_SIGN_P12")
+        if not certificate:
+            sys.exit("notarizing needs a Developer ID certificate (MACOS_SIGN_PEM or MACOS_SIGN_P12)")
         log("notarizing (this waits for Apple)")
         run([rcodesign, "notary-submit", "--api-key-file", notary_key, "--staple", app])
 

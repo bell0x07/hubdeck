@@ -1,8 +1,8 @@
 # hubdeck CI: tests on Linux, and hubdeck.app for macOS built on Linux (no Mac runner needed).
 #
 # Optional CI/CD variables for signing (Settings > CI/CD > Variables), see packaging/macos/build.py:
-#   MACOS_SIGN_P12            File   .p12 certificate (self-signed is enough for permissions to survive updates)
-#   MACOS_SIGN_P12_PASSWORD   Masked its password
+#   MACOS_SIGN_PEM            File   certificate + private key, PEM (self-signed is enough for
+#                                    permissions to survive updates; see README "Building the app")
 #   MACOS_NOTARY_API_KEY      File   App Store Connect API key JSON (with a Developer ID certificate)
 
 stages: [test, build]

@@ -119,15 +119,17 @@ That writes `dist/hubdeck-<version>-macos-arm64.zip`. On a Mac, `python packagin
 | set in the environment / CI variables | result |
 | --- | --- |
 | nothing | ad-hoc: works, but **macOS forgets the permissions on every update**, and the first launch needs right-click › Open |
-| `MACOS_SIGN_P12` (file) + `MACOS_SIGN_P12_PASSWORD` with a **self-signed** certificate | permissions **survive updates**; the first launch still needs right-click › Open |
+| `MACOS_SIGN_PEM` (file) with a **self-signed** certificate | permissions **survive updates**; the first launch still needs right-click › Open |
 | the same with a **Developer ID** certificate, plus `MACOS_NOTARY_API_KEY` (file) | signed and notarised: opens normally ($99/year Apple Developer Program) |
 
-To make a self-signed certificate once, keep the `.p12` somewhere safe and add it as a *File* variable in GitLab:
+To make a self-signed certificate once, run this. Keep the file safe: it holds the private key.
 
 ```bash
 rcodesign generate-self-signed-certificate --person-name "hubdeck" --validity-days 3650 \
-  --p12-file hubdeck-signing.p12 --p12-password '<a password>'
+  --pem-unified-file hubdeck-signing.pem
 ```
+
+Then, in GitLab › Settings › CI/CD › Variables, add `MACOS_SIGN_PEM` with **type File**, and paste the file's contents as the value. A `.p12` works too (`MACOS_SIGN_P12` plus `MACOS_SIGN_P12_PASSWORD`), for local builds.
 
 ## Editor
 
