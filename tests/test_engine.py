@@ -152,7 +152,7 @@ def test_device_reconnect(write):
     eng.step()
     assert eng.device is None
     clock.t += 5
-    eng.device_factory = FakeKeyModule
+    eng.manager.factories["keys"] = FakeKeyModule
     eng.step()
     assert eng.device is not None and eng.device.images
 

@@ -64,9 +64,11 @@ def cmd_validate(args):
         sys.exit(str(e))
     print(f"{src.path}: OK")
     print(f"  ownership: {cfg.device.ownership}, keys painted: {sorted(cfg.owned_keys())}")
+    print(f"  modules used: {', '.join(sorted(cfg.used_modules())) or 'none'}")
     for name, page in cfg.pages.items():
         mark = " (start)" if name == cfg.start_page else ""
-        print(f"  page {name}{mark}: keys {sorted(page.keys)}")
+        extra = [s for s in ("dial", "knobs", "rollers", "faders") if getattr(page, s)]
+        print(f"  page {name}{mark}: keys {sorted(page.keys)}" + (f", {', '.join(extra)}" if extra else ""))
     plugins = sorted(cfg.used_plugins() - {"page"})
     print(f"  plugins: {', '.join(plugins) or 'none'}")
     if args.verbose:

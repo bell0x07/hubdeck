@@ -26,15 +26,22 @@ class PluginContext:
         self._emit(self.name, key, value)
 
 
+def value_state(name: str, arg: Any) -> str:
+    """State key under which a plugin publishes a watched value, e.g. 'value:app_volume:spotify.exe'."""
+    return f"value:{name}:{'' if arg is None else arg}"
+
+
 class Plugin:
     name: ClassVar[str]
     actions: ClassVar[dict[str, str]] = {}   # action -> help text
     states: ClassVar[dict[str, str]] = {}    # state -> help text
+    values: ClassVar[dict[str, str]] = {}    # adjustable value (turn/fader target) -> help text
 
     def __init__(self, ctx: PluginContext, config: dict):
         self.ctx = ctx
         self.config = config
         self.log = ctx.log
+        self.watched: set[tuple[str, Any]] = set()
 
     @classmethod
     def check_config(cls, config: dict) -> list[str]:
@@ -52,8 +59,27 @@ class Plugin:
     def stop(self):
         pass
 
+    @classmethod
+    def check_value(cls, name: str, arg: Any) -> str | None:
+        """Return a problem with a value target's argument, or None."""
+        return None
+
     def invoke(self, action: str, arg: Any):
         raise NotImplementedError
+
+    # values: called on the engine thread, must return quickly ---------------
+    def watch(self, targets: set[tuple[str, Any]]):
+        """Values the config shows/uses; publish them with set_state(value_state(name, arg), 0-100)."""
+        self.watched = set(targets)
+
+    def adjust(self, name: str, arg: Any, delta: float):
+        raise NotImplementedError
+
+    def set(self, name: str, arg: Any, value: float):
+        raise NotImplementedError
+
+
+_ADJUST, _SET = "\0adjust", "\0set"
 
 
 class ThreadedPlugin(Plugin):
@@ -80,6 +106,12 @@ class ThreadedPlugin(Plugin):
     def invoke(self, action, arg):
         self._queue.put((action, arg))
 
+    def adjust(self, name, arg, delta):
+        self._queue.put((_ADJUST, (name, arg, delta)))
+
+    def set(self, name, arg, value):
+        self._queue.put((_SET, (name, arg, value)))
+
     @property
     def stopping(self) -> bool:
         return self._stop.is_set()
@@ -92,9 +124,14 @@ class ThreadedPlugin(Plugin):
                     action, arg = self._queue.get(timeout=self.interval)
                     if action:
                         try:
-                            self.handle(action, arg)
+                            if action == _ADJUST:
+                                self.adjust_value(*arg)
+                            elif action == _SET:
+                                self.set_value(*arg)
+                            else:
+                                self.handle(action, arg)
                         except Exception:
-                            self.log.exception("action %s failed", action)
+                            self.log.exception("action %s failed", action.strip("\0"))
                     continue  # drain queued actions before the next tick
                 except queue.Empty:
                     pass
@@ -116,6 +153,12 @@ class ThreadedPlugin(Plugin):
         pass
 
     def handle(self, action: str, arg: Any):
+        raise NotImplementedError
+
+    def adjust_value(self, name: str, arg: Any, delta: float):
+        raise NotImplementedError
+
+    def set_value(self, name: str, arg: Any, value: float):
         raise NotImplementedError
 
     def tick(self):

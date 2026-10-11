@@ -10,6 +10,7 @@ class RecorderPlugin(Plugin):
     name = "rec"
     actions = {"a": "", "b": "", "start": "", "end": ""}
     states = {"on": "", "value": ""}
+    values = {"level": "", "app": ""}
     instances: list["RecorderPlugin"] = []
 
     def __init__(self, ctx, config):
@@ -18,8 +19,20 @@ class RecorderPlugin(Plugin):
         self.stopped = False
         RecorderPlugin.instances.append(self)
 
+    @classmethod
+    def check_value(cls, name, arg):
+        if name == "app" and not arg:
+            return "rec.app needs arg"
+        return None
+
     def invoke(self, action, arg):
         self.calls.append((action, arg))
+
+    def adjust(self, name, arg, delta):
+        self.calls.append(("adjust", name, arg, delta))
+
+    def set(self, name, arg, value):
+        self.calls.append(("set", name, arg, value))
 
     def stop(self):
         self.stopped = True

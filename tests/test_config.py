@@ -53,7 +53,7 @@ def test_missing_secret(write):
     ("keys: {1: {face: {label: '{rec.missing}'}}}", "no state 'missing'"),
     ("keys: {1: {face_on: {bg: red}}}", "need a 'state'"),
     ("keys: {1: {colour: red}}", "colour"),
-    ("{}", "no keys defined"),
+    ("{}", "nothing defined"),
     ("keys: {1: {action: discord.mute}}\nplugins: {discord: {}}", "client_id is required"),
 ])
 def test_validation_errors(write, body, message):
