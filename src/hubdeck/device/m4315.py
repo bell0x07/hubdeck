@@ -12,24 +12,16 @@ from __future__ import annotations
 
 import io
 import struct
-import threading
 
 from PIL import Image
 
-from .base import DeviceError
+from .hid import MODULE_TYPES, VID, HidModule, hid
 
-try:
-    import hid  # pip install hidapi
-except ImportError:  # allow importing for tests without hidapi
-    hid = None
-
-VID = 0x2516
 PID = 0x01FE
 KEY_COUNT = 15
 IMAGE_SIZE = 72              # the reference JPEG in cooltek-sdk-probe is 72x72
 OUT_REPORT_LEN = 0x140       # 320 bytes incl. report ID
 OUT_CHUNK_MAX = OUT_REPORT_LEN - 8
-FEATURE_LEN = 0x20           # 32 bytes incl. report ID
 INPUT_TAG_CH0 = 0x34         # '4' - channel 0 carries key events
 
 
@@ -81,104 +73,41 @@ def encode_jpeg(img: Image.Image) -> bytes:
 
 
 class M4315:
-    """Opens every HID interface the module exposes and uses whichever one
-    accepts each kind of report (Windows splits HID top-level collections
-    into separate paths)."""
+    """The 15-key module, on top of the generic HidModule."""
 
     key_count = KEY_COUNT
     image_size = IMAGE_SIZE
 
-    def __init__(self, path: bytes | None = None):
-        if hid is None:
-            raise DeviceError("hidapi is not installed: pip install hidapi")
-        paths = [path] if path else [i["path"] for i in hid.enumerate(VID, PID)]
-        if not paths:
-            raise DeviceError("MasterHub 15-key screen module (M4315) not found")
-        self.handles = []
-        for p in paths:
-            try:
-                d = hid.device()
-                d.open_path(p)
-                d.set_nonblocking(True)
-                self.handles.append(d)
-            except OSError:
-                pass
-        if not self.handles:
-            raise DeviceError("Found the module but could not open it (is another app holding it exclusively?)")
-        self._feature_dev = None
-        self._write_dev = None
-        self._lock = threading.Lock()
+    def __init__(self, path: bytes | None = None, serial: str | None = None):
+        self.hid = HidModule(MODULE_TYPES[PID], path, serial)
         self.pressed = [False] * KEY_COUNT
 
-    def _try(self, attr: str, fn):
-        cached = getattr(self, attr)
-        order = ([cached] if cached else []) + [h for h in self.handles if h is not cached]
-        last = None
-        for h in order:
-            try:
-                if fn(h):
-                    setattr(self, attr, h)
-                    return
-            except (OSError, ValueError) as e:
-                last = e
-        raise DeviceError(f"No interface accepted the report ({last})")
-
-    def _feature(self, cmd: int, value: int):
-        buf = bytearray(FEATURE_LEN)
-        buf[0], buf[1], buf[2] = 0x03, cmd, value
-        with self._lock:
-            self._try("_feature_dev", lambda h: h.send_feature_report(bytes(buf)) > 0)
-
     def set_software_mode(self, on: bool = True):
-        self._feature(0x3A, 1 if on else 0)
+        self.hid.set_feature(bytes([0x03, 0x3A, 1 if on else 0]))
 
     def set_brightness(self, percent: int):
-        self._feature(0x34, max(0, min(100, int(percent))))
+        self.hid.set_feature(bytes([0x03, 0x34, max(0, min(100, int(percent)))]))
 
     def encode(self, img: Image.Image) -> bytes:
         return encode_jpeg(img)
 
     def set_image(self, index: int, data: bytes):
-        reports = build_image_reports(index, data)
-
-        def send_all(h):
-            for r in reports:
-                if h.write(r) != len(r):
-                    return False
-            return True
-
-        with self._lock:
-            self._try("_write_dev", send_all)
+        self.hid.write_many(build_image_reports(index, data))
 
     def poll(self) -> list[tuple[int, bool]]:
         edges = []
-        failed = 0
-        for h in self.handles:
-            while True:
-                try:
-                    data = h.read(OUT_REPORT_LEN)
-                except OSError:
-                    failed += 1
-                    break
-                if not data:
-                    break
-                state = parse_key_report(data)
-                if state is None:
-                    continue
-                for i, now in enumerate(state):
-                    if now != self.pressed[i]:
-                        edges.append((i, now))
-                self.pressed = state
-        if failed == len(self.handles):
-            raise DeviceError("Lost connection to the module")
+        for data in self.hid.read_raw():
+            state = parse_key_report(data)
+            if state is None:
+                continue
+            for i, now in enumerate(state):
+                if now != self.pressed[i]:
+                    edges.append((i, now))
+            self.pressed = state
         return edges
 
     def close(self):
-        for h in self.handles:
-            try:
-                h.close()
-            except Exception:
-                pass
+        self.hid.close()
 
 
 def list_interfaces() -> list[str]:
@@ -187,7 +116,8 @@ def list_interfaces() -> list[str]:
         return ["hidapi is not installed: pip install hidapi"]
     lines = []
     for i in hid.enumerate(VID):
-        mark = "  <- 15-key module" if i["product_id"] == PID else ""
+        known = MODULE_TYPES.get(i["product_id"])
+        mark = f"  <- {known.code} ({known.aliases[0]})" if known else ""
         lines.append(f"PID 0x{i['product_id']:04x}  usage_page 0x{i['usage_page']:04x}  usage 0x{i['usage']:04x}  "
                      f"iface {i['interface_number']}  {i.get('product_string') or ''}{mark}\n    path {i['path']!r}")
     return lines or ["No Cooler Master (VID 0x2516) HID devices found."]
