@@ -19,6 +19,10 @@ hubdeck controls the Cooler Master MasterHub modules on Windows: 15-key screen m
   - lighting (`lighting.py`), hot reload
   - `def_for(kind, index)` is the one place that maps a module index to the current page's definition.
 - **`plugins/`:** each plugin declares `actions`, `states` and `values` (adjustable targets via `adjust`/`set`, published through `watch` as `value:<name>:<arg>` states). Slow plugins subclass `ThreadedPlugin`. Plugin modules must not import heavy dependencies at import time.
+- **`gui/`:** browser editor.
+  - `server.py` is a stdlib HTTP server on 127.0.0.1 with a per-run token and a Host check, serving a JSON API and `assets/gui/` (vanilla JS, no build).
+  - `doc.py` edits config.yaml with ruamel.yaml round-trip. It keeps comments, `!secret` tags and the user's spacing on untouched lines, and validates with the real loader before writing.
+  - Module positions and the Base orientation (`modules.<kind>.position`, `device.orientation`) are editor-only; the engine ignores them.
 - **`cli.py` / `cli_probe.py`:** the `hubdeck` command, including the hidden `probe` tools. `tray.py` is `hubdeck-tray`.
 
 ## Hardware facts that matter (all verified)

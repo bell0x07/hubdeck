@@ -54,6 +54,35 @@ def axis_sign(rotate: int) -> int:
     return 1 if rotate % 360 in (0, 90) else -1
 
 
+# Footprint on the Base in cells (width, height) at rotate 0, and where each control sits
+# inside it (0-1, by module index), for drawing the device in the editor.
+FOOTPRINT = {"keys": (4, 3), "dial": (2, 2), "knobs": (2, 2), "rollers": (4, 1), "faders": (4, 2)}
+BASE_CELLS = {"horizontal": (6, 4), "vertical": (4, 6)}
+DRAW = {
+    "keys": [((c + 0.5) / 5, (r + 0.5) / 3) for r in range(3) for c in range(5)],
+    "dial": [(0.5, 0.5)],
+    "knobs": [(0.27, 0.72), (0.73, 0.72), (0.5, 0.28)],
+    "rollers": [(0.72, 0.5), (0.28, 0.5)],
+    "faders": [((i + 0.5) / 5, 0.5) for i in range(5)],
+}
+
+
+def footprint(kind: str, rotate: int = 0) -> tuple[int, int]:
+    w, h = FOOTPRINT[kind]
+    return (h, w) if rotate % 180 else (w, h)
+
+
+def drawing(kind: str, rotate: int = 0) -> list[dict]:
+    """Controls of a mounted module for the editor: number, index and position (0-1) in its footprint."""
+    out = []
+    for idx, (x, y) in enumerate(DRAW[kind]):
+        for _ in range((rotate // 90) % 4):   # rotate the point inside the unit box, clockwise
+            x, y = 1 - y, x
+        out.append({"index": idx, "number": number_of(kind, idx, rotate) if kind != "dial" else 1,
+                    "x": round(x, 4), "y": round(y, 4)})
+    return out
+
+
 def image_rotation(rotate: int) -> int:
     """Clockwise rotation to apply to pictures so they look upright on a module rotated by `rotate`."""
     return (360 - rotate) % 360

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hubdeck editor</title>
+<link rel="stylesheet" href="/style.css">
+<script>window.TOKEN = "__TOKEN__";</script>
+</head>
+<body>
+<header>
+  <div class="brand">hubdeck</div>
+  <nav id="pages"></nav>
+  <button id="add-page" title="Add a page">+ page</button>
+  <div class="spacer"></div>
+  <button id="btn-lighting">Lighting</button>
+  <button id="btn-settings">Device &amp; modules</button>
+  <button id="btn-yaml">YAML</button>
+  <span id="status" class="pill">loading…</span>
+</header>
+
+<div id="error" class="banner hidden"></div>
+
+<main>
+  <section id="device-area">
+    <div class="page-tools">
+      <span id="page-title"></span>
+      <button id="page-start" class="small">Make start page</button>
+      <button id="page-rename" class="small">Rename</button>
+      <button id="page-delete" class="small danger">Delete page</button>
+    </div>
+    <div id="base"></div>
+    <div id="unplaced"></div>
+    <p class="hint">Click a control to edit it. Drag a module by its title bar to move it on the base, and use ↻ to
+      tell hubdeck the module is mounted rotated (numbers follow reading order as mounted).
+      Saving validates the whole config first and keeps your comments; a running hubdeck applies it immediately.</p>
+  </section>
+
+  <aside id="editor" class="hidden">
+    <div class="ed-head">
+      <h2 id="ed-title"></h2>
+      <button id="ed-close" class="small">✕</button>
+    </div>
+    <div class="tabs">
+      <button data-tab="form" class="active">Form</button>
+      <button data-tab="yaml">YAML</button>
+    </div>
+    <div id="ed-preview-wrap"><img id="ed-preview" alt=""></div>
+    <div id="ed-form"></div>
+    <textarea id="ed-yaml" class="hidden" spellcheck="false"></textarea>
+    <div id="ed-error" class="banner hidden"></div>
+    <div class="ed-actions">
+      <button id="ed-save" class="primary">Save</button>
+      <button id="ed-revert">Revert</button>
+      <div class="spacer"></div>
+      <button id="ed-delete" class="danger">Remove</button>
+    </div>
+  </aside>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlg-form">
+    <div class="ed-head"><h2 id="dlg-title"></h2><button value="close" class="small">✕</button></div>
+    <div class="tabs" id="dlg-tabs"></div>
+    <div id="dlg-body"></div>
+    <textarea id="dlg-yaml" class="hidden" spellcheck="false"></textarea>
+    <div id="dlg-error" class="banner hidden"></div>
+    <div class="ed-actions">
+      <button id="dlg-save" class="primary" value="">Save</button>
+      <div class="spacer"></div>
+      <button value="close">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/app.js"></script>
+</body>
+</html>

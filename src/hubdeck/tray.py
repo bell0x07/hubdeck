@@ -83,13 +83,29 @@ def main(argv=None):
     def pages_menu():
         return [pystray.MenuItem(p, goto(p), checked=is_current(p), radio=True) for p in engine.page_names]
 
+    editor = {}
+
+    def open_editor():
+        """Start the browser editor once (in this process, so it shows live state) and open it."""
+        if not source.path.exists():
+            _edit(source.path, paths.EXAMPLE_CONFIG)    # creates the config from the example first
+        if "server" not in editor:
+            from .gui.server import GuiServer
+            editor["server"] = GuiServer(source, engine=engine)
+            editor["server"].start(open_browser=True)
+        else:
+            webbrowser.open(editor["server"].url)
+
     def quit_app():
         engine.stop()
+        if "server" in editor:
+            editor["server"].stop()
         icon.stop()
 
     menu = pystray.Menu(
         # default item: also runs when the tray icon is clicked
-        pystray.MenuItem("Edit config", lambda: _edit(source.path, paths.EXAMPLE_CONFIG), default=True),
+        pystray.MenuItem("Open editor", open_editor, default=True),
+        pystray.MenuItem("Edit config as text", lambda: _edit(source.path, paths.EXAMPLE_CONFIG)),
         pystray.MenuItem("Edit secrets", lambda: _edit(source.secrets, paths.EXAMPLE_SECRETS)),
         pystray.MenuItem(lambda item: f"Page: {engine.current_page or '-'}", pystray.Menu(pages_menu)),
         pystray.MenuItem("Reload config", lambda: engine.reload()),
