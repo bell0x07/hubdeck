@@ -92,6 +92,7 @@ class ThreadedPlugin(Plugin):
         self._queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._pending: tuple[str, Any] | None = None   # taken off the queue while merging adjusts
 
     def start(self):
         self._thread = threading.Thread(target=self._run, name=f"hubdeck-{self.name}", daemon=True)
@@ -121,11 +122,11 @@ class ThreadedPlugin(Plugin):
             self.setup()
             while not self._stop.is_set():
                 try:
-                    action, arg = self._queue.get(timeout=self.interval)
+                    action, arg = self._next()
                     if action:
                         try:
                             if action == _ADJUST:
-                                self.adjust_value(*arg)
+                                self.adjust_value(*self._merge_adjusts(arg))
                             elif action == _SET:
                                 self.set_value(*arg)
                             else:
@@ -147,6 +148,27 @@ class ThreadedPlugin(Plugin):
                 self.teardown()
             except Exception:
                 self.log.exception("teardown failed")
+
+    def _next(self) -> tuple[str, Any]:
+        if self._pending is not None:
+            item, self._pending = self._pending, None
+            return item
+        return self._queue.get(timeout=self.interval)
+
+    def _merge_adjusts(self, arg):
+        """Fold the adjusts of the same value that queued up meanwhile into one,
+        so a fast spin of a slow target (AppleScript, ~10 ms) doesn't build a backlog."""
+        name, target, delta = arg
+        while self._pending is None:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if item[0] == _ADJUST and item[1][:2] == (name, target):
+                delta += item[1][2]
+            else:
+                self._pending = item
+        return name, target, delta
 
     # override these ----------------------------------------------------
     def setup(self):

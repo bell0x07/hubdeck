@@ -125,6 +125,40 @@ def test_fader_soft_takeover(write, recorder):
     assert plugin.calls == [("set", "app", "discord.exe", 60), ("set", "app", "discord.exe", 70)]
 
 
+def test_fader_lets_go_when_the_value_changes_elsewhere(write, recorder):
+    """After the volume is changed by the keyboard (or another fader), the fader must reach
+    the new value again before it acts: no jump on the next touch."""
+    eng, devs, clock = make(write)
+    plugin = rec(recorder)
+    key = value_state("app", "discord.exe")
+    plugin.emit(key, 50); eng.step()
+    f = devs["faders"]
+    for v in (40, 50, 55):                                 # caught at 50, sets 55
+        f.push("slide", 0, v); eng.step()
+    plugin.emit(key, 55); eng.step()                       # its own change coming back: stays caught
+    f.push("slide", 0, 58); eng.step()
+    assert plugin.calls == [("set", "app", "discord.exe", 50), ("set", "app", "discord.exe", 55),
+                            ("set", "app", "discord.exe", 58)]
+    clock.t += 2
+    plugin.emit(key, 20); eng.step()                       # keyboard sets 20
+    plugin.calls.clear()
+    f.push("slide", 0, 60); eng.step()                     # fader still up at 60: no jump
+    f.push("slide", 0, 30); eng.step()                     # moving down, not there yet
+    assert plugin.calls == []
+    f.push("slide", 0, 18); eng.step()                     # crossed 20: caught again
+    assert plugin.calls == [("set", "app", "discord.exe", 18)]
+
+
+def test_fader_does_not_resend_the_same_value(write, recorder):
+    eng, devs, _ = make(write)
+    plugin = rec(recorder)
+    plugin.emit(value_state("app", "discord.exe"), 50); eng.step()
+    f = devs["faders"]
+    for v in (49, 50, 51, 51):
+        f.push("slide", 0, v); eng.step()
+    assert plugin.calls == [("set", "app", "discord.exe", 50), ("set", "app", "discord.exe", 51)]
+
+
 def test_fader_does_not_take_over_unknown_value(write, recorder):
     eng, devs, _ = make(write)
     f = devs["faders"]

@@ -20,6 +20,8 @@ dependencies = [
     "ruamel.yaml>=0.18",
     "pycaw>=20240316; sys_platform == 'win32'",
     "comtypes>=1.4; sys_platform == 'win32'",
+    "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
 ]
 
 [project.urls]

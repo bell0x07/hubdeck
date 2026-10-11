@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import secrets as pysecrets
+import sys
 import threading
 import webbrowser
 from http import HTTPStatus
@@ -23,7 +24,7 @@ from PIL import Image, ImageDraw
 from ..config import ConfigError, ConfigSource, load_config
 from ..config.schema import ALIASES, GESTURES, LED_MODES, ControlDef, FaderDef, KeyDef
 from ..render import tabler
-from ..render.faces import render
+from ..render.faces import accent_color, render
 from .doc import GLOBALS, SECTIONS, ConfigDoc, to_plain
 
 log = logging.getLogger("hubdeck.gui")
@@ -102,7 +103,6 @@ class _HTTPServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def handle_error(self, request, client_address):
-        import sys
         if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
             return          # browsers drop idle keep-alive connections; not worth a traceback
         super().handle_error(request, client_address)
@@ -242,6 +242,8 @@ class GuiServer:
             "gestures": list(GESTURES),
             "led_modes": list(LED_MODES),
             "counts": COUNTS,
+            "platform": sys.platform,
+            "accent": "#%02x%02x%02x" % accent_color(),
         }
 
     def api_item(self, page: str, section: str, num) -> dict:
@@ -329,17 +331,13 @@ class GuiServer:
             import warnings
             warnings.simplefilter("ignore")    # pycaw warns about devices with missing properties
             try:
-                import comtypes
-                from pycaw.pycaw import AudioUtilities
-                comtypes.CoInitialize()
+                from ..platforms import current
+                backend = current().audio()
                 try:
-                    apps = {s.Process.name() for s in AudioUtilities.GetAllSessions() if s.Process}
-                    out["apps"] = sorted(apps, key=str.lower)
-                    out["outputs"] = sorted({d.FriendlyName for d in AudioUtilities.GetAllDevices()
-                                             if d.FriendlyName and str(d.id).startswith("{0.0.0.")
-                                             and "active" in str(d.state).lower()})
+                    out["apps"] = backend.apps()
+                    out["outputs"] = backend.outputs()
                 finally:
-                    comtypes.CoUninitialize()
+                    backend.close()
             except Exception:
                 log.debug("audio info failed", exc_info=True)
 

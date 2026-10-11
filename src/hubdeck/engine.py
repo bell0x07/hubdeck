@@ -21,7 +21,7 @@ from .plugins import REGISTRY, Plugin, PluginContext
 from .plugins.base import value_state
 from .render.images import ImageStore
 from . import paths
-from .render.faces import BLANK, RenderFace, parse_color, render
+from .render.faces import BLANK, RenderFace, accent_color, parse_color, render
 
 log = logging.getLogger("hubdeck")
 
@@ -30,6 +30,7 @@ LOOP_SLEEP = 0.01
 PRESSABLE = {"keys": 15, "dial": 1, "knobs": 3}   # modules whose controls have press gestures
 SCREENS = ("keys", "dial")
 TAKEOVER_WINDOW = 4                               # faders pick up the value within +/- this
+FADER_ECHO_SECONDS = 1.0                          # a target value this recent from the fader is its own echo
 
 
 def format_value(value: Any, fmt: str | None) -> str:
@@ -71,6 +72,7 @@ class Engine:
         self._jpeg_cache: dict[tuple, bytes] = {}
         self._fader_caught: dict[int, bool] = {}
         self._fader_last: dict[int, int] = {}
+        self._fader_sent: dict[int, list[tuple[float, int]]] = {}   # recent (time, value) a fader set
         self.lighting = LightingController()
         self.images = ImageStore(paths.app_dir() / "cache")
         self._animating = False
@@ -78,6 +80,7 @@ class Engine:
         self._light_zones = []
         self._dirty = True
         self._force = False
+        self._accent = None             # last accent colour painted, to repaint when the OS one changes
         self._reload_check_at = 0.0
         self._reassert_at = 0.0
         self._stop = threading.Event()
@@ -146,6 +149,9 @@ class Engine:
             for i, ev in tracker.tick(now):
                 self._fire(kind, i, ev)
         self._drain_states()
+        if (accent := accent_color()) != self._accent:
+            self._accent = accent
+            self._dirty = True
         if self.images.changed.is_set():          # a downloaded image is ready
             self.images.changed.clear()
             self._dirty = True
@@ -299,6 +305,7 @@ class Engine:
                 double_s = d.double_press_ms / 1000 if kd and kd.on_double_press else None
                 tracker.configure(idx, long_s, double_s)
         self._fader_caught.clear()       # new page, new targets: faders must pick up again
+        self._fader_sent.clear()
         self._dirty = True
         if changed:
             log.info("page: %s", self.current_page)
@@ -324,6 +331,7 @@ class Engine:
             self._invoke(action)
 
     def _turn(self, kind: str, idx: int, steps: int):
+        log.debug("%s %d turned %+d", kind, layout.number_of(kind, idx, self.cfg.modules.rotate(kind)), steps)
         cd = self.def_for(kind, idx)
         if not isinstance(cd, ControlDef) or cd.turn is None:
             return
@@ -352,6 +360,7 @@ class Engine:
             return
         if (layout.axis_sign(self.cfg.modules.rotate(kind)) < 0) != fd.invert:
             value = 100 - value           # increase up/right whatever the mounting
+        log.debug("faders %d at %d", layout.number_of(kind, idx, self.cfg.modules.rotate(kind)), value)
         p, n = fd.target.split(".", 1)
         plugin = self.plugins.get(p)
         if plugin is None:
@@ -370,10 +379,35 @@ class Engine:
                 log.info("fader %d took over %s at %d (was %s)", idx + 1, fd.target, value, current)
             else:
                 return   # soft takeover: don't jump until the fader reaches the current value
+        sent = self._fader_sent.setdefault(idx, [])
+        if sent and sent[-1][1] == value:
+            return       # already set to this
+        now = self.clock()
+        sent[:] = [(t, v) for t, v in sent if now - t < FADER_ECHO_SECONDS] + [(now, value)]
         try:
             plugin.set(n, fd.arg, value)
         except Exception as e:
             log.error("%s: set failed: %s", fd.target, e)
+
+    def _release_faders(self, name: str, value: Any):
+        """A fader's target changed, and not to a value the fader just set (keyboard, the app,
+        another fader): let go, so the fader has to reach the new value before it acts again."""
+        if value is None:
+            return
+        now = self.clock()
+        for idx, caught in self._fader_caught.items():
+            fd = self.def_for("faders", idx) if caught else None
+            if fd is None:
+                continue
+            p, n = fd.target.split(".", 1)
+            if f"{p}.{value_state(n, fd.arg)}" != name:
+                continue
+            if any(now - t < FADER_ECHO_SECONDS and abs(v - value) <= TAKEOVER_WINDOW
+                   for t, v in self._fader_sent.get(idx, [])):
+                continue   # the fader's own change coming back
+            self._fader_caught[idx] = False
+            self._fader_sent.pop(idx, None)
+            log.info("fader %d released: %s changed to %s elsewhere", idx + 1, fd.target, value)
 
     def _invoke(self, action: Action):
         log.debug("action %s", action)
@@ -410,6 +444,8 @@ class Engine:
             if self.state.get(name, ...) != value:
                 self.state[name] = value
                 self._dirty = True
+                if key.startswith("value:"):
+                    self._release_faders(name, value)
 
     # -- faces -------------------------------------------------------------
     def _template(self, s: str | None, value: Any = None) -> str | None:
@@ -556,3 +592,4 @@ class Engine:
         if kind == "faders":             # positions must be re-learned after reconnecting
             self._fader_last.clear()
             self._fader_caught.clear()
+            self._fader_sent.clear()

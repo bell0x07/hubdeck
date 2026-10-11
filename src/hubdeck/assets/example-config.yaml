@@ -1,5 +1,6 @@
 # hubdeck example config
-# Lives in %APPDATA%\hubdeck\config.yaml. Saved changes apply immediately.
+# Lives in %APPDATA%\hubdeck\config.yaml (macOS: ~/Library/Application Support/hubdeck/config.yaml).
+# Saved changes apply immediately. On macOS, `cmd` is the Command key (also written `win`).
 # Key numbers 1-15: run `hubdeck test` to see which is which.
 # Icons: any Tabler icon name (https://tabler.io/icons) - search with `hubdeck icons <word>`.
 

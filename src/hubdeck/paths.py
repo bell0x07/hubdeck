@@ -11,12 +11,11 @@ EXAMPLE_SECRETS = Path(__file__).resolve().parent / "assets" / "example-secrets.
 PLACEHOLDER_PREFIX = "paste-your-"  # values in example-secrets.yaml that still need replacing
 
 
-def _appdata() -> Path:
-    return Path(os.environ.get("APPDATA") or Path.home() / ".config")
-
-
 def app_dir() -> Path:
-    return Path(os.environ.get("HUBDECK_HOME") or _appdata() / APP_NAME)
+    if os.environ.get("HUBDECK_HOME"):
+        return Path(os.environ["HUBDECK_HOME"])
+    from .platforms import current
+    return current().app_data_dir() / APP_NAME
 
 
 def config_path() -> Path:

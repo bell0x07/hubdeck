@@ -79,7 +79,7 @@ def _check_color(v: str | None) -> str | None:
         try:
             parse_color(v)
         except ValueError:
-            raise ValueError(f"unknown colour {v!r} (use #rrggbb or a name like red)")
+            raise ValueError(f"unknown colour {v!r} (use #rrggbb, a name like red, or accent)")
     return v
 
 
@@ -393,7 +393,7 @@ class Modules(_Model):
 class Defaults(_Model):
     long_press_ms: int = Field(default=500, ge=100)
     double_press_ms: int = Field(default=250, ge=50)
-    style: Style = Style(bg="#19191e", fg="#3cc86e", label_color="#ffffff")
+    style: Style = Style(bg="#19191e", fg="accent", label_color="#ffffff")   # accent: the macOS accent colour
     led_gamma: float = Field(default=2.2, ge=1.0, le=4.0)   # LED colour/brightness correction (1 = off)
     animation_fps: int = Field(default=30, ge=1, le=60)     # cap for GIF faces
 

@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 
+from ..platforms import current
 from .base import ThreadedPlugin
-
-CREATE_NO_WINDOW = 0x08000000
 
 
 class LaunchPlugin(ThreadedPlugin):
     name = "launch"
     actions = {
-        "open": "open a file, folder, app or URL with its default handler, e.g. {open: 'https://...'}",
+        "open": "open a file, folder, app or URL with its default handler, e.g. {open: 'https://...'} "
+                "(macOS: also an app name, e.g. {open: Spotify})",
         "run": "run a shell command, e.g. {run: 'notepad.exe'} or {run: {cmd: '...', cwd: 'C:/...'}}",
     }
 
@@ -32,15 +30,8 @@ class LaunchPlugin(ThreadedPlugin):
 
     def handle(self, action, arg):
         if action == "open":
-            target = os.path.expandvars(arg)
-            if sys.platform == "win32":
-                os.startfile(target)
-            else:
-                subprocess.Popen(["xdg-open", target])
+            current().open(os.path.expandvars(arg))
         elif action == "run":
             cmd, cwd = (arg["cmd"], arg.get("cwd")) if isinstance(arg, dict) else (arg, None)
-            flags = CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            subprocess.Popen(cmd, shell=True, cwd=os.path.expandvars(cwd) if cwd else None,
-                             creationflags=flags, stdin=subprocess.DEVNULL,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            current().run(cmd, cwd=os.path.expandvars(cwd) if cwd else None)
             self.log.info("ran %s", cmd)

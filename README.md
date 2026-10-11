@@ -9,13 +9,15 @@ A Stream-Deck-style controller for the whole **Cooler Master MasterHub** family:
 | **3 knobs, 2 rollers, 5 faders** | Volumes (system, microphone, per app) or any action, with knob and fader LEDs that can follow the value. |
 | **Base** | RGB lighting that reacts to state, for example red and breathing while you're muted. |
 
-Actions cover keystrokes, media keys, launching apps, Windows audio and Discord mute/deafen/hold-to-mute. Controls can be grouped into pages. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
+Actions cover keystrokes, media keys, launching apps, system and per-app audio, and Discord mute/deafen/hold-to-mute. Controls can be grouped into pages. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
 
-This is an unofficial tool, tested on Windows 11 with real hardware. The protocol notes, with sources and what's verified, are in [docs/protocol/](docs/protocol/README.md).
+It runs on **Windows** and **macOS**. This is an unofficial tool, tested with real hardware on Windows 11 and macOS. The protocol notes, with sources and what's verified, are in [docs/protocol/](docs/protocol/README.md).
 
 ## Install
 
-You need Python 3.11 or newer on Windows.
+You need Python 3.11 or newer.
+
+**Windows** (PowerShell):
 
 ```powershell
 git clone https://github.com/bell0x07/hubdeck.git
@@ -24,22 +26,63 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
 ```
 
-This installs two commands into `.venv\Scripts`:
+**macOS** (Terminal; Python from [python.org](https://www.python.org/downloads/) or `brew install python`):
+
+```bash
+git clone https://github.com/bell0x07/hubdeck.git
+cd hubdeck
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+```
+
+This installs two commands into `.venv\Scripts` (Windows) or `.venv/bin` (macOS):
 - `hubdeck`: the command line
-- `hubdeck-tray`: the background app with a tray icon
+- `hubdeck-tray`: the background app with a tray (menu bar) icon
 
 ## First run
 
-```powershell
-.\.venv\Scripts\hubdeck.exe list     # your modules should be marked
-.\.venv\Scripts\hubdeck.exe test     # paints the key numbers and prints key presses
-.\.venv\Scripts\hubdeck.exe init     # writes an example config.yaml and secrets.yaml
-.\.venv\Scripts\hubdeck.exe run      # runs in the foreground (Ctrl+C to quit)
+```sh
+hubdeck list     # your modules should be marked
+hubdeck test     # paints the key numbers and prints key presses
+hubdeck init     # writes an example config.yaml and secrets.yaml
+hubdeck run      # runs in the foreground (Ctrl+C to quit)
 ```
 
-- **Close MasterHUB first, including its background daemon.** It drives the same modules, so the two would fight over the screens and lights.
-- **For everyday use, run `hubdeck-tray`.** Clicking the tray icon opens the config for editing. The menu can switch pages, reload, open the log and open this repo.
-- **To start at login,** put a shortcut to `.venv\Scripts\hubdeck-tray.exe` in `shell:startup`.
+Run them as `.\.venv\Scripts\hubdeck.exe …` on Windows and `.venv/bin/hubdeck …` on macOS, or activate the venv first.
+
+- **Close MasterHUB first, including its background daemon** (Windows). It drives the same modules, so the two would fight over the screens and lights.
+- **For everyday use, run `hubdeck-tray`.** Clicking the tray icon opens the editor (on macOS it opens the menu, where "Open editor" is the first item). The menu can also switch pages, reload, open the log and open this repo.
+- **To start at login on Windows,** put a shortcut to `.venv\Scripts\hubdeck-tray.exe` in `shell:startup`.
+- **To start at login on macOS,** see [macOS](#macos) below.
+
+## macOS
+
+Everything works as on Windows, with these differences:
+
+- **Permissions.** macOS asks for these the first time they're needed. Grant them to the app hubdeck runs in: Terminal (or iTerm, …) for `hubdeck run`, or Python for a login item.
+  - **Accessibility** (System Settings › Privacy & Security) for the `keyboard` actions. Without it macOS drops the keystrokes, and hubdeck logs which permission is missing. Restart hubdeck after allowing it.
+  - **Automation** for per-app volume: macOS asks once whether hubdeck may control the app (e.g. Music). Until you answer, that app's volume is unavailable, but everything else keeps working.
+  - The modules themselves need no permission.
+- **Keys:** `cmd` (or `command`, `win`) is the Command key and `option` (or `alt`) is Option. `ctrl+c` sends Control-C, so use `cmd+c` to copy. The Mac has no `menu`, `f21`–`f24` or media `stop` key. macOS ignores the Force Quit shortcut (`cmd+option+esc`) when it doesn't come from a real keyboard; `{open: "Activity Monitor"}` is the nearest alternative.
+- **Per-app volume:** macOS has no per-app mixer, so `audio.app_volume` only works for apps that expose a volume to AppleScript, such as **Spotify** and **Music**. Name the app as it appears in the Dock, e.g. `arg: Spotify`. Windows names like `spotify.exe` work too, so one config can serve both. Each change takes the app about 0.2 s, so hubdeck sends them in the background and skips to the latest level while you turn.
+- **Microphone mute:** a microphone with no mute switch (many USB mics) is muted by setting its input volume to 0 and restoring it afterwards.
+- **`open`** also takes an app name, e.g. `{open: Spotify}`.
+- **Menu bar:** the tray icon sits in the menu bar like other Mac icons, and clicking it opens the menu. Notifications currently show the Script Editor icon, because they are posted through AppleScript.
+- **The 2xRoller module** sent no input on macOS in testing (the knobs, Dial and keys work). It's not known yet whether that's macOS or the test unit.
+- **Colours:** the default icon colour is your macOS accent colour (System Settings › Appearance), and it follows changes within about 2 seconds. Use `accent` as a colour anywhere to get it, e.g. `lighting: {base: {color: accent}}`. On other systems `accent` is hubdeck green.
+- **Start at login:** save this as `~/Library/LaunchAgents/com.github.hubdeck.plist`, with the path to your clone, then run `launchctl load ~/Library/LaunchAgents/com.github.hubdeck.plist`:
+
+  ```xml
+  <?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+  <plist version="1.0">
+  <dict>
+    <key>Label</key><string>com.github.hubdeck</string>
+    <key>ProgramArguments</key><array><string>/Users/YOU/hubdeck/.venv/bin/hubdeck-tray</string></array>
+    <key>RunAtLoad</key><true/>
+  </dict>
+  </plist>
+  ```
 
 ## Editor
 
@@ -63,10 +106,12 @@ hubdeck has a visual editor that runs in your browser. It's served by hubdeck on
 
 | file | where |
 | --- | --- |
-| config | `%APPDATA%\hubdeck\config.yaml` (or `--config path`) |
+| config | `config.yaml` in the hubdeck folder (or `--config path`) |
 | secrets | `secrets.yaml` next to the config |
-| log | `%APPDATA%\hubdeck\hubdeck.log` |
-| downloaded images | `%APPDATA%\hubdeck\cache\` |
+| log | `hubdeck.log` in the hubdeck folder |
+| downloaded images | `cache` in the hubdeck folder |
+
+The hubdeck folder is `%APPDATA%\hubdeck` on Windows and `~/Library/Application Support/hubdeck` on macOS. Set `HUBDECK_HOME` to use another folder.
 
 - `hubdeck where` prints these paths.
 - `hubdeck validate` checks the config and lists the pages, modules and plugins it uses.
@@ -155,6 +200,7 @@ These share the same fields.
 ### Faces (keys and the Dial)
 
 - **Fields:** `icon` (a Tabler name; `filled: true` uses the filled style), `label`, `text`, `bg`, `fg` (icon colour), `label_color` and `font_size`.
+- **Colours** are `#rrggbb`, a name like `red`, or `accent`: the system accent colour on macOS, hubdeck green elsewhere. Icons default to `accent`.
 - **Live text:** `text` and `label` can include `{plugin.state}` or `{plugin.state:format}`, for example `{system.time:%H:%M}` or `{system.cpu:.0f}%`.
 - **Control value:** on a control with a turn target, `{value}` shows the target's current value, and `gauge: true` draws a ring around the Dial.
 - **Pictures:** `image: file.png`, `.jpg` or **animated `.gif`**.
@@ -173,7 +219,7 @@ faders:
   3: {target: audio.app_volume, arg: discord.exe, invert: false}
 ```
 
-A fader sets its target to its position (0–100). **Soft takeover:** a fader only takes control once it reaches or passes the target's current value, so moving it never makes the volume jump.
+A fader sets its target to its position (0–100). **Soft takeover:** a fader only takes control once it reaches or passes the target's current value, so moving it never makes the volume jump. When the value is changed elsewhere (the keyboard, the app, another fader), the fader lets go and has to reach the new value again.
 
 ### Lighting (Base, knobs, faders)
 
@@ -211,9 +257,9 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | plugin | actions | states | values (turn/fader targets) |
 | --- | --- | --- | --- |
 | `page` | `goto` (`{page: name}`), `back`, `home` | none | none |
-| `keyboard` | `keys`, `key_down`, `key_up`, `media`, `type` | none | none |
-| `launch` | `open` (file, folder, app or URL), `run` (shell command) | none | none |
-| `audio` | `toggle_mute` / `mute` / `unmute` (speakers or microphone), `volume_up`, `volume_down`, `set_volume`, `set_output` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`) |
+| `keyboard` | `keys`, `key_down`, `key_up`, `media`, `type` (`cmd`/`win` is Command on macOS) | none | none |
+| `launch` | `open` (file, folder, app or URL; on macOS also an app name), `run` (shell command) | none | none |
+| `audio` | `toggle_mute` / `mute` / `unmute` (speakers or microphone), `volume_up`, `volume_down`, `set_volume`, `set_output` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
 | `system` | none | `time`, `cpu`, `ram` | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
 
@@ -229,7 +275,7 @@ The Discord plugin needs a Discord app. You create it once, for your own account
 2. Under **OAuth2**, copy the **Client ID** and **Client Secret** into `secrets.yaml`.
 3. Add the redirect `http://localhost` and click **Save Changes**. It must be the **only** redirect. If there are none, or more than one, authorization fails with `Missing "redirect_uri" in request`.
 
-The first time hubdeck connects, Discord shows an authorization popup. The login token is then kept in `%APPDATA%\hubdeck\discord_token.json`. Voice RPC only works for the app's owner and for whitelisted testers.
+The first time hubdeck connects, Discord shows an authorization popup. The login token is then kept in `discord_token.json` in the hubdeck folder. Voice RPC only works for the app's owner and for whitelisted testers.
 
 ## Hot-plugging and sharing
 
@@ -240,11 +286,12 @@ The first time hubdeck connects, Discord shows an authorization popup. The login
 ## Development
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"     # macOS: .venv/bin/python -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest                      # macOS: .venv/bin/python -m pytest
 ```
 
 - **Tests** use fake modules, so you don't need the hardware.
+- **OS-specific code** is all in `src/hubdeck/platforms/`: the interface in `base.py`, one package per OS, and `posix.py` for what macOS and Linux share. Supporting another OS means implementing `Platform` there.
 - **`hubdeck probe`** has the reverse-engineering tools:
   - `probe info [module]` reads every feature report.
   - `probe listen [module ...]` prints decoded input live.
