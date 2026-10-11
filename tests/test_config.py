@@ -99,6 +99,16 @@ def test_example_config_commented_sections_are_valid(write):
     assert {"dial", "knobs", "rollers", "faders", "base"} <= cfg.used_modules()
 
 
+def test_full_showcase_example_is_valid(monkeypatch):
+    from pathlib import Path
+    monkeypatch.setenv("HUBDECK_DISCORD_CLIENT_ID", "123")
+    monkeypatch.setenv("HUBDECK_DISCORD_CLIENT_SECRET", "dummy")
+    path = Path(__file__).resolve().parents[1] / "examples" / "config.yaml"
+    cfg = load_config(path, secrets=path.parent / "no-secrets.yaml")
+    assert cfg.used_modules() == {"keys", "dial", "knobs", "rollers", "faders", "base"}
+    assert set(cfg.pages) == {"main", "media", "fun"}
+
+
 def test_on_off_yes_no_stay_text(write):
     cfg = load_config(write("config.yaml", "keys: {1: {face: {label: ON, text: no, filled: true}}}"))
     face = cfg.pages["main"].keys[1].face

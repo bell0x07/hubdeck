@@ -101,7 +101,7 @@ pages:
       1: {action: page.back, face: {icon: arrow-left, label: Back}}
 ```
 
-`hubdeck init` writes a fuller, commented example to start from. If you only need one page, put `keys:`, `dial:`, `knobs:`, `rollers:` and `faders:` at the top level instead of `pages:`.
+`hubdeck init` writes a commented starter config. **[examples/config.yaml](examples/config.yaml)** is a complete, working config that uses every module and feature: pages, gestures, live text, Discord, GIFs, the Dial gauge, knobs, rollers, faders, lighting and rotated mounting. If you only need one page, put `keys:`, `dial:`, `knobs:`, `rollers:` and `faders:` at the top level instead of `pages:`.
 
 ### Numbering and mounting
 

@@ -1,0 +1,147 @@
+# hubdeck: full example using every module and feature.
+#
+# Copy to %APPDATA%\hubdeck\config.yaml (or run `hubdeck --config examples/config.yaml run`) and
+# delete what you don't have: hubdeck only opens the modules a config uses.
+# Secrets live in secrets.yaml next to the config (`hubdeck init` writes a template), or in
+# HUBDECK_<NAME> environment variables.
+# Check it with: hubdeck validate -v     Find icons with: hubdeck icons <word>
+
+device:
+  ownership: shared            # shared: only touch controls used here | exclusive: own everything
+  reassert_seconds: 5          # repaint keys in case another app draws over them
+
+# How each module is mounted (clockwise from its default position) + screen backlight.
+# Control numbers always follow reading order (left to right, top to bottom) as mounted.
+modules:
+  keys:    {rotate: 0, brightness: 80}
+  dial:    {rotate: 0, brightness: 100}
+  knobs:   {rotate: 0}         # default: one knob on top, two below
+  rollers: {rotate: 0}         # default: side by side
+  faders:  {rotate: 270}       # mounted sideways: fader 1 on top, 0 left, 100 right
+
+defaults:
+  long_press_ms: 500
+  double_press_ms: 250
+  style: {bg: "#19191e", fg: "#3cc86e", label_color: "#ffffff"}
+  led_gamma: 2.2               # LED colour correction (1 = off)
+  animation_fps: 30            # cap for GIF faces
+
+plugins:
+  discord:                     # needs your own Discord app, see README
+    client_id: !secret discord_client_id
+    client_secret: !secret discord_client_secret
+
+# RGB lighting. Nothing is stored on the modules.
+lighting:
+  base:                        # green; red and breathing while Discord is muted; dim grey while offline
+    color: "#3cc86e"
+    state: discord.muted
+    on:      {color: "#c81e28", mode: breathing}
+    unknown: {color: "#303030"}
+  knobs:
+    all: {color: white, brightness: value, min_brightness: 10}   # brighter = louder
+    2:   {color: "#c81e28"}                                       # the mic knob is red
+  faders:
+    all: {color: white, brightness: value, min_brightness: 10}
+    5:   {animate: {effect: cycle, colors: ["#3cc86e", "#3c8ce6", "#b43ce6"], period: 6}}
+
+start_page: main
+pages:
+  main:
+    keys:
+      1:                                   # folder: open another page
+        action: {page: media}
+        face: {icon: music, label: Media}
+      2:                                   # tap vs hold
+        action: {keys: "ctrl+shift+esc"}
+        on_long_press: {run: "taskmgr.exe"}
+        face: {icon: keyboard, label: TaskMgr}
+      3:                                   # double press
+        action: {open: "https://tabler.io/icons"}
+        on_double_press: {open: "https://github.com/bell0x07/hubdeck"}
+        face: {icon: world, label: Icons}
+      4:                                   # live text
+        face: {text: "{system.time:%H:%M}", label: "{system.time:%a %d}"}
+      5:
+        face: {text: "{system.cpu:.0f}%", label: CPU}
+      6:                                   # state-driven face
+        action: {audio.toggle_mute: microphone}
+        state: audio.mic_muted
+        face:    {icon: microphone, label: MIC}
+        face_on: {icon: microphone-off, label: MUTED, bg: "#c81e28", fg: white}
+      7:                                   # animated GIF from a URL (file paths work too)
+        action: {page: fun}
+        face: {image: "https://upload.wikimedia.org/wikipedia/commons/2/2c/Rotating_earth_%28large%29.gif", label: Fun}
+      10:                                  # a list of actions runs in order
+        action: [{keys: "win+d"}, {media: play_pause}]
+        face: {icon: coffee, label: Break}
+
+      11:                                  # Discord mute with live state
+        action: discord.toggle_mute
+        state: discord.muted
+        face:         {icon: microphone, label: LIVE}
+        face_on:      {icon: microphone-off, label: MUTED, bg: "#c81e28", fg: white}
+        face_unknown: {icon: plug-connected-x, label: NO DC, bg: "#c81e28", fg: white}
+      12:                                  # hold to mute (survives page switches)
+        on_down: discord.hold_mute_start
+        on_up: discord.hold_mute_end
+        state: discord.holding
+        face:         {icon: hand-stop, label: HOLD}
+        face_on:      {icon: microphone-off, label: HELD, bg: "#c81e28", fg: white}
+        face_unknown: {icon: plug-connected-x, label: NO DC, bg: "#c81e28", fg: white}
+      13:
+        action: discord.toggle_deafen
+        state: discord.deafened
+        face:         {icon: headphones, label: AUDIO}
+        face_on:      {icon: headphones-off, label: DEAF, bg: "#c81e28", fg: white}
+        face_unknown: {icon: plug-connected-x, label: NO DC, bg: "#c81e28", fg: white}
+
+    # These sections apply to every page that doesn't define its own.
+    dial:                                  # round screen: system volume with a gauge
+      turn: {target: audio.volume, step: 2}
+      action: audio.toggle_mute
+      state: audio.speaker_muted
+      face:    {icon: volume, label: "{value}%", gauge: true}
+      face_on: {icon: volume-off, label: MUTED, bg: "#c81e28", fg: white}
+
+    knobs:                                 # 1 = top, 2 = bottom-left, 3 = bottom-right
+      1: {turn: {target: audio.app_volume, arg: discord.exe}}
+      2: {turn: audio.mic_volume, action: {audio.toggle_mute: microphone}}
+      3: {turn: {target: audio.app_volume, arg: spotify.exe}}
+
+    rollers:                               # 1 = left, 2 = right
+      1: {turn: {cw: {media: next}, ccw: {media: prev}}}
+      2: {turn: {target: audio.volume, step: 2}}
+
+    faders:                                # soft takeover: no jumps when you grab a fader
+      1: {target: audio.volume}
+      2: {target: audio.mic_volume}
+      3: {target: audio.app_volume, arg: spotify.exe}
+      4: {target: audio.app_volume, arg: discord.exe}
+      5: {target: audio.app_volume, arg: chrome.exe}
+
+  media:
+    keys:
+      1: {action: page.back, face: {icon: arrow-left, label: Back}}
+      2: {action: {media: prev}, face: {icon: player-skip-back}}
+      3: {action: {media: play_pause}, face: {icon: player-play}}
+      4: {action: {media: next}, face: {icon: player-skip-forward}}
+      5: {action: {audio.volume_down: 5}, face: {icon: volume-2, label: "{audio.volume}%"}}
+      6: {action: {audio.volume_up: 5}, face: {icon: volume, label: "{audio.volume}%"}}
+      7:
+        action: audio.toggle_mute
+        state: audio.speaker_muted
+        face:    {icon: volume, label: SOUND}
+        face_on: {icon: volume-off, label: MUTED, bg: "#c81e28", fg: white}
+    dial:                                  # on this page the dial controls Spotify instead
+      turn: {target: audio.app_volume, arg: spotify.exe, step: 2}
+      action: {media: play_pause}
+      face: {icon: brand-spotify, label: "{value}%", gauge: true}
+
+  fun:
+    keys:
+      1: {action: page.home, face: {icon: home, label: Home}}
+    dial:                                  # same volume control, with a GIF behind the gauge
+      turn: {target: audio.volume, step: 2}
+      face: {image: "https://upload.wikimedia.org/wikipedia/commons/2/2c/Rotating_earth_%28large%29.gif",
+             label: "{value}%", gauge: true}
