@@ -17,6 +17,7 @@ dependencies = [
     "pydantic>=2.6",
     "pystray>=0.19",
     "psutil>=5.9",
+    "ruamel.yaml>=0.18",
     "pycaw>=20240316; sys_platform == 'win32'",
     "comtypes>=1.4; sys_platform == 'win32'",
 ]
@@ -37,7 +38,7 @@ hubdeck-tray = "hubdeck.tray:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-hubdeck = ["assets/*.yaml", "assets/tabler/*"]
+hubdeck = ["assets/*.yaml", "assets/tabler/*", "assets/gui/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
