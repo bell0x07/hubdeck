@@ -15,6 +15,7 @@ from .device import DeviceError
 from .device.manager import RETRY_SECONDS, DeviceManager, present_kinds
 from .device.modules import Event
 from .gestures import GestureTracker
+from .lighting import LightingController
 from .plugins import REGISTRY, Plugin, PluginContext
 from .plugins.base import value_state
 from .render.faces import BLANK, RenderFace, parse_color, render
@@ -67,6 +68,8 @@ class Engine:
         self._jpeg_cache: dict[tuple, bytes] = {}
         self._fader_caught: dict[int, bool] = {}
         self._fader_last: dict[int, int] = {}
+        self.lighting = LightingController()
+        self._light_zones = []
         self._dirty = True
         self._force = False
         self._reload_check_at = 0.0
@@ -137,6 +140,12 @@ class Engine:
             for i, ev in tracker.tick(now):
                 self._fire(kind, i, ev)
         self._drain_states()
+        if self._light_zones:
+            for kind in self.lighting.update(self._light_zones, self.manager.devices, self.state.get,
+                                             self._light_value, now, force=self._dirty,
+                                             gamma=self.cfg.defaults.led_gamma):
+                self.manager.drop(kind)
+                self._module_lost(kind, "lighting write failed", now)
         reassert = self.cfg.device.reassert_seconds
         if reassert and now >= self._reassert_at:
             self._reassert_at = now + reassert
@@ -186,6 +195,8 @@ class Engine:
             if name not in self.plugins:
                 self._start_plugin(name, settings)
         self._watch_targets()
+        self._light_zones = cfg.lighting.zones()
+        self.lighting.forget()
         for name, page in cfg.pages.items():
             if page.match:
                 log.warning("pages.%s.match: app-based page switching is not implemented yet; ignored", name)
@@ -461,8 +472,20 @@ class Engine:
             self._module_lost(kind, str(e), now)
             return
         self._apply_brightness(kind)
+        self.lighting.forget(kind)
         self._dirty = self._force = True
         self._notify("device", f"{kind} connected")
+
+    def _light_value(self, kind: str, idx: int):
+        """Value a zone's `brightness: value` follows: the control's target on the current page."""
+        if kind == "knobs":
+            return self.target_value(self.def_for("knobs", idx))
+        if kind == "faders":
+            fd = self.def_for("faders", idx)
+            if fd is not None:
+                p, n = fd.target.split(".", 1)
+                return self.state.get(f"{p}.{value_state(n, fd.arg)}")
+        return None
 
     def _apply_brightness(self, only: str | None = None):
         levels = {"keys": self.cfg.device.brightness, "dial": self.cfg.device.dial_brightness}
