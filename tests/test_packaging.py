@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import sys
 import time
 import zipfile
 from pathlib import Path
@@ -43,6 +44,7 @@ def test_branch_builds_are_named_after_the_branch():
     assert build.slug("Feat/Ünicode Branch!") == "feat-nicode-branch"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need admin or Developer Mode")
 def test_zip_is_dated_and_keeps_modes_and_symlinks(tmp_path):
     app = tmp_path / "hubdeck.app"
     exe = app / "Contents/MacOS/hubdeck"
