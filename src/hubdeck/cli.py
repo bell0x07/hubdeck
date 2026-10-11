@@ -144,6 +144,61 @@ def cmd_gui(args):
         pass
 
 
+SEND_HELP = """examples:
+  hubdeck send discord.toggle_mute          run any action, written as in the config
+  hubdeck send page media                   ...with an argument (read like YAML)
+  hubdeck send audio.set_volume 30
+  hubdeck send shortcuts.run "Lights off"
+  hubdeck send set focus Work               set vars.focus, shown with {vars.focus}
+  hubdeck send set weather -                ...to the text on stdin, as is (Shortcuts: pass input to stdin)
+  hubdeck send get discord.muted            print a state (empty while unknown)
+  hubdeck send image picture photo.jpg      set vars.picture to a picture, for image: "{vars.picture}"
+  hubdeck send image picture -              ...read from stdin (Shortcuts: pass input to stdin)
+
+From the Shortcuts app, use a "Run Shell Script" action with the full path to hubdeck."""
+
+
+def _plain(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def cmd_send(args):
+    from .config.loader import parse_value
+    from .control import ControlError, save_sent_image, send
+
+    words = args.words
+    try:
+        if words[0] == "set":
+            if len(words) < 3:
+                sys.exit("usage: hubdeck send set <name> <value, or - for the text on stdin>")
+            if words[2:] == ["-"]:      # literal text, e.g. a Shortcut's multi-line result
+                value = sys.stdin.read().strip()
+            else:
+                value = parse_value(" ".join(words[2:]))
+            send({"cmd": "set", "name": words[1], "value": value})
+        elif words[0] == "image":
+            if len(words) != 3:
+                sys.exit("usage: hubdeck send image <name> <file or - for stdin>")
+            try:
+                data = sys.stdin.buffer.read() if words[2] == "-" else Path(words[2]).expanduser().read_bytes()
+            except OSError as e:
+                sys.exit(f"error: {e}")
+            send({"cmd": "set", "name": words[1], "value": str(save_sent_image(words[1], data))})
+        elif words[0] == "get":
+            if len(words) != 2:
+                sys.exit("usage: hubdeck send get <plugin.state>")
+            print(_plain(send({"cmd": "get", "name": words[1]})["value"]))
+        else:
+            raw = words[0] if len(words) == 1 else {words[0]: parse_value(" ".join(words[1:]))}
+            send({"cmd": "action", "action": raw})
+    except ControlError as e:
+        sys.exit(f"error: {e}")
+
+
 def cmd_where(args):
     print(f"config:  {Path(args.config) if args.config else paths.config_path()}")
     print(f"secrets: {paths.secrets_path(Path(args.config) if args.config else None)}")
@@ -174,6 +229,11 @@ def main(argv=None):
     p.add_argument("--filled", action="store_true")
     p.set_defaults(fn=cmd_icons)
     sub.add_parser("where", help="show config, secrets and log paths").set_defaults(fn=cmd_where)
+    p = sub.add_parser("send", help="control the running hubdeck (from Shortcuts or scripts)",
+                       usage="hubdeck send ACTION [ARG] | set NAME VALUE | get STATE | image NAME FILE",
+                       epilog=SEND_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("words", nargs="+", metavar="WORD", help="see the examples below")
+    p.set_defaults(fn=cmd_send)
     p = sub.add_parser("gui", help="open the config editor in your browser")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--no-browser", action="store_true")

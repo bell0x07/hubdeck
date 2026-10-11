@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import secrets as pysecrets
+import sys
 import threading
 import webbrowser
 from http import HTTPStatus
@@ -23,7 +24,7 @@ from PIL import Image, ImageDraw
 from ..config import ConfigError, ConfigSource, load_config
 from ..config.schema import ALIASES, GESTURES, LED_MODES, ControlDef, FaderDef, KeyDef
 from ..render import tabler
-from ..render.faces import render
+from ..render.faces import accent_color, render
 from .doc import GLOBALS, SECTIONS, ConfigDoc, to_plain
 
 log = logging.getLogger("hubdeck.gui")
@@ -102,7 +103,6 @@ class _HTTPServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def handle_error(self, request, client_address):
-        import sys
         if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
             return          # browsers drop idle keep-alive connections; not worth a traceback
         super().handle_error(request, client_address)
@@ -237,11 +237,13 @@ class GuiServer:
         from ..plugins import REGISTRY
         return {
             "plugins": {n: {"actions": p.actions, "states": p.states, "values": p.values}
-                        for n, p in REGISTRY.items()},
+                        for n, p in REGISTRY.items() if p.available()},
             "aliases": {k: f"{p}.{a}" for k, (p, a) in ALIASES.items()},
             "gestures": list(GESTURES),
             "led_modes": list(LED_MODES),
             "counts": COUNTS,
+            "platform": sys.platform,
+            "accent": "#%02x%02x%02x" % accent_color(),
         }
 
     def api_item(self, page: str, section: str, num) -> dict:
@@ -316,7 +318,7 @@ class GuiServer:
         kd = model.model_validate(raw) if raw else None
         if kd is not None:
             for face in kd.faces():   # relative images resolve next to the config, like the loader does
-                if face.image and not face.image.lower().startswith(("http://", "https://")):
+                if face.image and "{" not in face.image and not face.image.lower().startswith(("http://", "https://")):
                     p = Path(face.image).expanduser()
                     face.image = str(p if p.is_absolute() else self.source.path.parent / p)
         return self.preview.render(cfg, page, section, kd, "round" if section == "dial" else "square")
@@ -329,17 +331,13 @@ class GuiServer:
             import warnings
             warnings.simplefilter("ignore")    # pycaw warns about devices with missing properties
             try:
-                import comtypes
-                from pycaw.pycaw import AudioUtilities
-                comtypes.CoInitialize()
+                from ..platforms import current
+                backend = current().audio()
                 try:
-                    apps = {s.Process.name() for s in AudioUtilities.GetAllSessions() if s.Process}
-                    out["apps"] = sorted(apps, key=str.lower)
-                    out["outputs"] = sorted({d.FriendlyName for d in AudioUtilities.GetAllDevices()
-                                             if d.FriendlyName and str(d.id).startswith("{0.0.0.")
-                                             and "active" in str(d.state).lower()})
+                    out["apps"] = backend.apps()
+                    out["outputs"] = backend.outputs()
                 finally:
-                    comtypes.CoUninitialize()
+                    backend.close()
             except Exception:
                 log.debug("audio info failed", exc_info=True)
 
@@ -347,6 +345,15 @@ class GuiServer:
         t.start()
         t.join(5)
         return out
+
+    def shortcut_names(self) -> dict:
+        """The user's Shortcuts (macOS), for the picker; empty elsewhere or on failure."""
+        from ..platforms import current
+        try:
+            return {"names": current().shortcut_names()}
+        except Exception:
+            log.debug("listing Shortcuts failed", exc_info=True)
+            return {"names": []}
 
     def icon_png(self, name: str, filled: bool) -> bytes:
         cp = tabler.codepoint(name, filled)
@@ -423,6 +430,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(a.api_yaml())
             if url.path == "/api/audio":
                 return self._json(a.audio_info())
+            if url.path == "/api/shortcuts":
+                return self._json(a.shortcut_names())
             if url.path == "/api/icons":
                 hits = tabler.search(q.get("q", ""), q.get("filled") == "1")[:150]
                 return self._json({"icons": hits})

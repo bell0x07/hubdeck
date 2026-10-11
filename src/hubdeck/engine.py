@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 import time
 from datetime import date, datetime
@@ -21,7 +22,7 @@ from .plugins import REGISTRY, Plugin, PluginContext
 from .plugins.base import value_state
 from .render.images import ImageStore
 from . import paths
-from .render.faces import BLANK, RenderFace, parse_color, render
+from .render.faces import BLANK, RenderFace, accent_color, parse_color, render
 
 log = logging.getLogger("hubdeck")
 
@@ -30,6 +31,10 @@ LOOP_SLEEP = 0.01
 PRESSABLE = {"keys": 15, "dial": 1, "knobs": 3}   # modules whose controls have press gestures
 SCREENS = ("keys", "dial")
 TAKEOVER_WINDOW = 4                               # faders pick up the value within +/- this
+FADER_ECHO_SECONDS = 1.0                          # a target value this recent from the fader is its own echo
+
+
+LINE_FMT = re.compile(r"line(\d+)")
 
 
 def format_value(value: Any, fmt: str | None) -> str:
@@ -37,6 +42,10 @@ def format_value(value: Any, fmt: str | None) -> str:
         return "–"
     if isinstance(value, (datetime, date)):
         return value.strftime(fmt or "%H:%M")
+    if isinstance(value, str) and fmt and (m := LINE_FMT.fullmatch(fmt.strip())):
+        lines = value.splitlines()    # {shortcuts.weather:line2}: one line of multi-line text
+        n = int(m.group(1))
+        return lines[n - 1].strip() if 0 < n <= len(lines) else ""
     if fmt:
         try:
             return format(value, fmt)
@@ -71,6 +80,7 @@ class Engine:
         self._jpeg_cache: dict[tuple, bytes] = {}
         self._fader_caught: dict[int, bool] = {}
         self._fader_last: dict[int, int] = {}
+        self._fader_sent: dict[int, list[tuple[float, int]]] = {}   # recent (time, value) a fader set
         self.lighting = LightingController()
         self.images = ImageStore(paths.app_dir() / "cache")
         self._animating = False
@@ -78,6 +88,7 @@ class Engine:
         self._light_zones = []
         self._dirty = True
         self._force = False
+        self._accent = None             # last accent colour painted, to repaint when the OS one changes
         self._reload_check_at = 0.0
         self._reassert_at = 0.0
         self._stop = threading.Event()
@@ -103,6 +114,28 @@ class Engine:
     def reload(self):
         self._commands.put(("reload",))
 
+    def run_action(self, action: Action):
+        """Run an action on the engine thread (from any thread, e.g. the control channel)."""
+        self._commands.put(("action", action))
+
+    def check_runnable(self, action: Action) -> str | None:
+        """Why `action` can't run now, or None. For actions that don't come from the config
+        (hubdeck send), which the loader hasn't checked."""
+        from .plugins import REGISTRY
+        plugin = REGISTRY.get(action.plugin)
+        if plugin is None:
+            return f"unknown plugin {action.plugin!r} (available: {', '.join(sorted(REGISTRY))})"
+        if action.name not in plugin.actions:
+            return f"{action.plugin} has no action {action.name!r} (available: {', '.join(plugin.actions)})"
+        if err := plugin.check_action(action.name, action.arg):
+            return err
+        if action.plugin == "page":
+            if action.name == "goto" and (self.cfg is None or action.arg not in self.cfg.pages):
+                return f"no page named {action.arg!r}"
+        elif action.plugin not in self.plugins:
+            return f"{action.plugin} isn't running: nothing in the config uses it yet"
+        return None
+
     def stop(self):
         self._stop.set()
 
@@ -111,13 +144,20 @@ class Engine:
         self._apply(self.source.load())
 
     def run(self):
+        from .control import ControlServer
         if self.cfg is not None and not self.page_stack:
             self._apply(self.cfg)
+        control = ControlServer(self)
+        try:
+            control.start()
+        except OSError as e:
+            log.warning("control channel not available (hubdeck send won't work): %s", e)
         try:
             while not self._stop.is_set():
                 self.step()
                 time.sleep(LOOP_SLEEP)
         finally:
+            control.stop()
             self.shutdown()
 
     def shutdown(self):
@@ -146,6 +186,9 @@ class Engine:
             for i, ev in tracker.tick(now):
                 self._fire(kind, i, ev)
         self._drain_states()
+        if (accent := accent_color()) != self._accent:
+            self._accent = accent
+            self._dirty = True
         if self.images.changed.is_set():          # a downloaded image is ready
             self.images.changed.clear()
             self._dirty = True
@@ -182,6 +225,8 @@ class Engine:
                 self._set_pages(self.page_stack + [cmd[1]] if cmd[1] != self.current_page else self.page_stack)
             elif cmd[0] == "reload":
                 self._try_reload()
+            elif cmd[0] == "action" and self.cfg:
+                self._invoke(cmd[1])
 
     # -- config ------------------------------------------------------------
     def _try_reload(self):
@@ -299,6 +344,7 @@ class Engine:
                 double_s = d.double_press_ms / 1000 if kd and kd.on_double_press else None
                 tracker.configure(idx, long_s, double_s)
         self._fader_caught.clear()       # new page, new targets: faders must pick up again
+        self._fader_sent.clear()
         self._dirty = True
         if changed:
             log.info("page: %s", self.current_page)
@@ -324,6 +370,7 @@ class Engine:
             self._invoke(action)
 
     def _turn(self, kind: str, idx: int, steps: int):
+        log.debug("%s %d turned %+d", kind, layout.number_of(kind, idx, self.cfg.modules.rotate(kind)), steps)
         cd = self.def_for(kind, idx)
         if not isinstance(cd, ControlDef) or cd.turn is None:
             return
@@ -352,6 +399,7 @@ class Engine:
             return
         if (layout.axis_sign(self.cfg.modules.rotate(kind)) < 0) != fd.invert:
             value = 100 - value           # increase up/right whatever the mounting
+        log.debug("faders %d at %d", layout.number_of(kind, idx, self.cfg.modules.rotate(kind)), value)
         p, n = fd.target.split(".", 1)
         plugin = self.plugins.get(p)
         if plugin is None:
@@ -370,10 +418,35 @@ class Engine:
                 log.info("fader %d took over %s at %d (was %s)", idx + 1, fd.target, value, current)
             else:
                 return   # soft takeover: don't jump until the fader reaches the current value
+        sent = self._fader_sent.setdefault(idx, [])
+        if sent and sent[-1][1] == value:
+            return       # already set to this
+        now = self.clock()
+        sent[:] = [(t, v) for t, v in sent if now - t < FADER_ECHO_SECONDS] + [(now, value)]
         try:
             plugin.set(n, fd.arg, value)
         except Exception as e:
             log.error("%s: set failed: %s", fd.target, e)
+
+    def _release_faders(self, name: str, value: Any):
+        """A fader's target changed, and not to a value the fader just set (keyboard, the app,
+        another fader): let go, so the fader has to reach the new value before it acts again."""
+        if value is None:
+            return
+        now = self.clock()
+        for idx, caught in self._fader_caught.items():
+            fd = self.def_for("faders", idx) if caught else None
+            if fd is None:
+                continue
+            p, n = fd.target.split(".", 1)
+            if f"{p}.{value_state(n, fd.arg)}" != name:
+                continue
+            if any(now - t < FADER_ECHO_SECONDS and abs(v - value) <= TAKEOVER_WINDOW
+                   for t, v in self._fader_sent.get(idx, [])):
+                continue   # the fader's own change coming back
+            self._fader_caught[idx] = False
+            self._fader_sent.pop(idx, None)
+            log.info("fader %d released: %s changed to %s elsewhere", idx + 1, fd.target, value)
 
     def _invoke(self, action: Action):
         log.debug("action %s", action)
@@ -410,6 +483,8 @@ class Engine:
             if self.state.get(name, ...) != value:
                 self.state[name] = value
                 self._dirty = True
+                if key.startswith("value:"):
+                    self._release_faders(name, value)
 
     # -- faces -------------------------------------------------------------
     def _template(self, s: str | None, value: Any = None) -> str | None:
@@ -437,6 +512,10 @@ class Engine:
         value = self.target_value(kd)
         gauge = merged.get("gauge", False)
         image, frame = merged.get("image"), 0
+        if image and "{" in image:              # e.g. {vars.picture}: a picture sent with `hubdeck send image`
+            image = self._template(image, value)
+            if image in ("", "–"):
+                image = None
         if image:
             loaded = self.images.get(image)
             if loaded is None:
@@ -556,3 +635,4 @@ class Engine:
         if kind == "faders":             # positions must be re-learned after reconnecting
             self._fader_last.clear()
             self._fader_caught.clear()
+            self._fader_sent.clear()

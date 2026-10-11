@@ -5,11 +5,13 @@ Everything is drawn on a 4x canvas and downscaled for smooth edges.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 
+from ..platforms import current
 from . import tabler
 
 SUPERSAMPLE = 4
@@ -33,16 +35,41 @@ class RenderFace:
     frame: int = 0                # animation frame, so each frame gets its own cache entry
 
 
+ACCENT = "accent"            # colour name for the system accent colour (macOS), else hubdeck green
+ACCENT_FALLBACK = (60, 200, 110)
+ACCENT_REFRESH_SECONDS = 2
+_accent: tuple[float, Color] = (-ACCENT_REFRESH_SECONDS, ACCENT_FALLBACK)
+
+
+def accent_color() -> Color:
+    """The OS accent colour, re-read every few seconds so a change in the OS settings is picked up."""
+    global _accent
+    checked, rgb = _accent
+    now = time.monotonic()
+    if now - checked >= ACCENT_REFRESH_SECONDS:
+        try:
+            rgb = current().accent_color() or ACCENT_FALLBACK
+        except Exception:
+            pass        # keep the last colour we had
+        _accent = (now, rgb)
+    return rgb
+
+
 def parse_color(value: str) -> Color:
-    """'#c81e28', 'red', 'rgb(200,30,40)' -> (r, g, b). Raises ValueError."""
+    """'#c81e28', 'red', 'rgb(200,30,40)', 'accent' -> (r, g, b). Raises ValueError."""
+    if value.strip().lower() == ACCENT:
+        return accent_color()
     return ImageColor.getrgb(value)[:3]
 
 
 @lru_cache(maxsize=64)
 def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    for name in ("segoeuib.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"):
+    for name, variation in current().label_fonts():
         try:
-            return ImageFont.truetype(name, size)
+            font = ImageFont.truetype(name, size)
+            if variation:
+                font.set_variation_by_name(variation)
+            return font
         except OSError:
             continue
     try:

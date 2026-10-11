@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hubdeck"
-version = "0.1.0"
+dynamic = ["version"]                 # from src/hubdeck/__init__.py
 description = "Stream-Deck-style controller for the Cooler Master MasterHub modules (keys, dial, knobs, rollers, faders, RGB)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -20,6 +20,10 @@ dependencies = [
     "ruamel.yaml>=0.18",
     "pycaw>=20240316; sys_platform == 'win32'",
     "comtypes>=1.4; sys_platform == 'win32'",
+    "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-UserNotifications>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-ServiceManagement>=10; sys_platform == 'darwin'",
 ]
 
 [project.urls]
@@ -33,6 +37,9 @@ hubdeck = "hubdeck.cli:main"
 
 [project.gui-scripts]
 hubdeck-tray = "hubdeck.tray:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "hubdeck.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

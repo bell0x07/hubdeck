@@ -1,13 +1,12 @@
 """Discord voice: mute / deafen / hold-to-mute with live state, over Discord's
-local RPC (IPC named pipe). Needs your own Discord app (see README)."""
+local RPC (a named pipe on Windows, a Unix socket elsewhere). Needs your own
+Discord app (see README)."""
 
 from __future__ import annotations
 
 import json
-import os
 import queue
 import struct
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -16,6 +15,7 @@ import uuid
 from pathlib import Path
 
 from .. import paths
+from ..platforms import IpcConnection, current
 from .base import ThreadedPlugin
 
 OP_HANDSHAKE, OP_FRAME, OP_CLOSE, OP_PING, OP_PONG = 0, 1, 2, 3, 4
@@ -27,59 +27,35 @@ class DiscordError(Exception):
     pass
 
 
-def _ipc_paths():
-    if sys.platform == "win32":
-        return [rf"\\?\pipe\discord-ipc-{i}" for i in range(10)]
-    base = os.environ.get("XDG_RUNTIME_DIR") or os.environ.get("TMPDIR") or "/tmp"
-    return [os.path.join(base, f"discord-ipc-{i}") for i in range(10)]
-
-
 class DiscordIPC:
     """Minimal Discord local-RPC client. Single-threaded: reads are only done
-    when data is available (PeekNamedPipe / select), because a blocking read
-    on a Windows pipe handle would also block writes from other threads."""
+    when data is available, because a blocking read on a Windows pipe handle
+    would also block writes from other threads."""
 
     def __init__(self, client_id: str, client_secret: str, redirect_uri: str, token_file: Path):
         self.client_id = client_id
         self.client_secret = client_secret
         self.redirect_uri = redirect_uri
         self.token_file = token_file
-        self.pipe = None
-        self._sock = None
+        self.pipe: IpcConnection | None = None
         self.events: "queue.Queue[dict]" = queue.Queue()
         self._replies: dict[str, dict] = {}
 
     # -- transport ---------------------------------------------------------
     def _open(self):
-        for p in _ipc_paths():
+        for i in range(10):
             try:
-                if sys.platform == "win32":
-                    self.pipe = open(p, "r+b", buffering=0)
-                else:
-                    import socket
-                    self._sock = socket.socket(socket.AF_UNIX)
-                    self._sock.connect(p)
-                    self.pipe = self._sock.makefile("rwb", buffering=0)
+                self.pipe = current().ipc_connect(f"discord-ipc-{i}")
                 return
             except OSError:
                 continue
         raise DiscordError("Discord desktop app is not running (no IPC pipe found)")
 
     def _available(self) -> int:
-        if sys.platform == "win32":
-            import ctypes
-            import msvcrt
-            from ctypes import wintypes
-            avail = wintypes.DWORD(0)
-            h = msvcrt.get_osfhandle(self.pipe.fileno())
-            ok = ctypes.windll.kernel32.PeekNamedPipe(
-                wintypes.HANDLE(h), None, 0, None, ctypes.byref(avail), None)
-            if not ok:
-                raise DiscordError("Discord closed the connection")
-            return avail.value
-        import select
-        r, _, _ = select.select([self._sock], [], [], 0)
-        return 8 if r else 0
+        try:
+            return self.pipe.available()
+        except OSError:
+            raise DiscordError("Discord closed the connection")
 
     def _send(self, op: int, payload: dict):
         data = json.dumps(payload).encode()

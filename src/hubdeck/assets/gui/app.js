@@ -15,7 +15,8 @@ const h = (tag, attrs = {}, ...kids) => {
 
 const NAMES = { keys: "Keys", dial: "Dial", knobs: "Knobs", rollers: "Rollers", faders: "Faders" };
 const SINGULAR = { keys: "Key", dial: "Dial", knobs: "Knob", rollers: "Roller", faders: "Fader" };
-let S = null, META = null, AUDIO = { apps: [], outputs: [] }, page = null, sel = null, cur = null, stamp = Date.now();
+let S = null, META = null, AUDIO = { apps: [], outputs: [] }, SHORTCUTS = null, page = null, sel = null, cur = null, stamp = Date.now();
+const IS_MAC = () => META?.platform === "darwin";
 
 // ---------------------------------------------------------------------------------------
 // Friendly catalogue: what people want a control to do, mapped to config actions
@@ -39,8 +40,10 @@ const ACTIONS = [
   ].map(([a, label]) => ({ label, make: () => `discord.${a}`, is: x => x.name === `discord.${a}` })) },
   { group: "Open & run", items: [
     { label: "Open a website", arg: { kind: "text", placeholder: "https://…" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open" && /^https?:/i.test(a.arg || ""), get: a => a.arg },
-    { label: "Open an app, file or folder", arg: { kind: "text", placeholder: "C:\\Program Files\\…\\app.exe" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open", get: a => a.arg },
-    { label: "Run a command", arg: { kind: "text", placeholder: "e.g. notepad.exe" }, make: v => ({ run: v || "" }), is: a => a.name === "launch.run" && typeof a.arg === "string", get: a => a.arg },
+    { label: "Open an app, file or folder", arg: { kind: "text", placeholder: () => IS_MAC() ? "Spotify, or /Applications/…" : "C:\\Program Files\\…\\app.exe" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open", get: a => a.arg },
+    { label: "Run a command", arg: { kind: "text", placeholder: () => IS_MAC() ? "e.g. say hello" : "e.g. notepad.exe" }, make: v => ({ run: v || "" }), is: a => a.name === "launch.run" && typeof a.arg === "string", get: a => a.arg },
+    { label: "Run a Shortcut", needs: "shortcuts", arg: { kind: "shortcut" }, make: v => ({ "shortcuts.run": v || "" }), is: a => a.name === "shortcuts.run" && typeof a.arg === "string", get: a => a.arg },
+    { label: "Flip a value (vars)", arg: { kind: "text", placeholder: "name, e.g. dnd" }, make: v => ({ "vars.toggle": v || "" }), is: a => a.name === "vars.toggle", get: a => a.arg },
   ] },
   { group: "Keyboard", items: [
     { label: "Keyboard shortcut", arg: { kind: "keys" }, make: v => ({ keys: v || "" }), is: a => a.name === "keyboard.keys", get: a => a.arg },
@@ -90,8 +93,8 @@ const DIAL_PRESETS = [
     extra: { action: "audio.toggle_mute", state: "audio.speaker_muted", face_on: { icon: "volume-off", label: "MUTED", bg: RED, fg: "white" } } },
   { ...turnPreset("Microphone volume", "audio.mic_volume", null, "microphone"),
     extra: { action: { "audio.toggle_mute": "microphone" }, state: "audio.mic_muted", face_on: { icon: "microphone-off", label: "MUTED", bg: RED, fg: "white" } } },
-  turnPreset("Spotify volume", "audio.app_volume", "Spotify.exe", "brand-spotify"),
-  turnPreset("Discord volume", "audio.app_volume", "Discord.exe", "brand-discord"),
+  turnPreset("Spotify volume", "audio.app_volume", "Spotify", "brand-spotify"),
+  turnPreset("Discord volume", "audio.app_volume", "Discord", "brand-discord"),
 ];
 
 // ---------------------------------------------------------------------------------------
@@ -123,7 +126,8 @@ async function load() {
   err.classList.toggle("hidden", !S.error);
   setStatus(S.live ? "● connected to hubdeck" : "editing " + S.path.split(/[\\/]/).pop(), S.error ? "bad" : "ok");
 }
-async function loadAudio() { try { AUDIO = await api("/api/audio"); } catch { /* not on Windows */ } }
+async function loadShortcuts() { try { SHORTCUTS = (await api("/api/shortcuts")).names; } catch { SHORTCUTS = []; } }
+async function loadAudio() { try { AUDIO = await api("/api/audio"); } catch { /* no audio support on this OS */ } }
 
 function sectionOf(section, p = page) {
   const own = (S.pages[p] || {})[section];
@@ -319,9 +323,11 @@ function keyRecorder(value, onChange) {
     if (e.ctrlKey) parts.push("ctrl");
     if (e.shiftKey) parts.push("shift");
     if (e.altKey) parts.push("alt");
-    if (e.metaKey) parts.push("win");
-    let k = KEYMAP[e.key] ?? (/^F\d{1,2}$/.test(e.key) ? e.key.toLowerCase() : e.key.length === 1 ? e.key.toLowerCase() : null);
-    if (!k && e.code.startsWith("Key")) k = e.code.slice(3).toLowerCase();
+    if (e.metaKey) parts.push(IS_MAC() ? "cmd" : "win");
+    let k = KEYMAP[e.key] ?? (/^F\d{1,2}$/.test(e.key) ? e.key.toLowerCase() : /^[a-z0-9]$/i.test(e.key) ? e.key.toLowerCase() : null);
+    // Shift or Option changed the character (!, å): name the key that was pressed instead
+    if (!k && /^(Key[A-Z]|Digit\d)$/.test(e.code)) k = e.code.replace(/^Key|^Digit/, "").toLowerCase();
+    if (!k && e.key.length === 1) k = e.key.toLowerCase();
     if (!k) return;
     parts.push(k);
     input.value = parts.join("+");
@@ -333,7 +339,9 @@ function keyRecorder(value, onChange) {
 // ---------------------------------------------------------------------------------------
 // Friendly action picker
 // ---------------------------------------------------------------------------------------
-function findItem(a) { return ALL_ACTIONS.find(it => it.is(a)); }
+// items for a plugin this OS doesn't have (Shortcuts off macOS) are never offered; such actions show as Custom
+const offered = it => !it.needs || !!META?.plugins[it.needs];
+function findItem(a) { return ALL_ACTIONS.find(it => offered(it) && it.is(a)); }
 
 function argInput(item, value, onChange) {
   const spec = item.arg;
@@ -349,14 +357,21 @@ function argInput(item, value, onChange) {
       ...opts.map(o => h("option", { value: o, selected: o === value }, o)));
   }
   if (spec.kind === "keys") return keyRecorder(value, onChange);
-  return h("input", { type: "text", value: value ?? "", placeholder: spec.placeholder || "", oninput: e => onChange(e.target.value) });
+  if (spec.kind === "shortcut") {
+    const list = h("datalist", { id: "shortcut-names" });
+    const fill = () => list.replaceChildren(...(SHORTCUTS || []).map(n => h("option", { value: n })));
+    if (SHORTCUTS === null) loadShortcuts().then(fill); else fill();
+    return h("span", { class: "argwrap" }, h("input", { type: "text", value: value ?? "", list: "shortcut-names",
+      placeholder: "Shortcut name", oninput: e => onChange(e.target.value) }), list);
+  }
+  return h("input", { type: "text", value: value ?? "", placeholder: (typeof spec.placeholder === "function" ? spec.placeholder() : spec.placeholder) || "", oninput: e => onChange(e.target.value) });
 }
 
 function actionSelect(selected, onPick) {
   return h("select", { class: "actsel", onchange: e => onPick(e.target.value) },
     h("option", { value: "" }, "— nothing —"),
     ...ACTIONS.map(g => h("optgroup", { label: g.group },
-      ...g.items.map(it => h("option", { value: ALL_ACTIONS.indexOf(it), selected: it === selected }, it.label)))),
+      ...g.items.filter(offered).map(it => h("option", { value: ALL_ACTIONS.indexOf(it), selected: it === selected }, it.label)))),
     selected === "custom" ? h("option", { value: "custom", selected: true }, "Custom (see Advanced)") : null);
 }
 
@@ -467,7 +482,7 @@ function lookFields(base, isDial, isOverlay) {
     ...iconPicker([...base, "icon"]),
     field("Label", textIn([...base, "label"], isDial ? "e.g. {value}% for the current value" : "short text under the icon")),
     field("Background", colorIn([...base, "bg"], "#19191e")),
-    field("Icon colour", colorIn([...base, "fg"], "#3cc86e")),
+    field("Icon colour", colorIn([...base, "fg"], META.accent || "#3cc86e")),
   ];
   if (isOverlay) return fields;
   if (isDial) fields.push(field("", checkIn([...base, "gauge"], "show a ring with the current value")));
@@ -502,7 +517,7 @@ function turnFields() {
     const v = e.target.value;
     if (v === "") delete cur.raw.turn;
     else if (v === "actions") cur.raw.turn = { cw: { media: "next" }, ccw: { media: "prev" } };
-    else cur.raw.turn = { target: v, step: 2, ...(v === "audio.app_volume" ? { arg: AUDIO.apps[0] || "Spotify.exe" } : {}) };
+    else cur.raw.turn = { target: v, step: 2, ...(v === "audio.app_volume" ? { arg: AUDIO.apps[0] || "Spotify" } : {}) };
     changed(); buildForm(); } },
     h("option", { value: "" }, "does nothing"),
     ...Object.entries(VALUES).map(([k, label]) => h("option", { value: k, selected: t.target === k }, `changes ${label.toLowerCase()}`)),
@@ -530,7 +545,7 @@ function appPicker(path) {
     other.classList.add("hidden"); setPath(cur.raw, path, e.target.value); changed(); } },
     ...apps.map(a => h("option", { value: a, selected: a === v }, a.replace(/\.exe$/i, ""))),
     h("option", { value: "__other" }, "another app…"));
-  const other = h("input", { type: "text", class: "hidden", placeholder: "program name, e.g. chrome.exe",
+  const other = h("input", { type: "text", class: "hidden", placeholder: IS_MAC() ? "app name, e.g. Music" : "program name, e.g. chrome.exe",
     oninput: e => { setPath(cur.raw, path, e.target.value); changed(); } });
   return h("span", { class: "argwrap" }, sel, other,
     h("button", { class: "small", type: "button", title: "Refresh the list of apps playing audio",
@@ -541,7 +556,7 @@ function faderFields() {
   const t = cur.raw.target;
   const pick = h("select", { onchange: e => {
     if (!e.target.value) { delete cur.raw.target; delete cur.raw.arg; }
-    else { cur.raw.target = e.target.value; if (e.target.value === "audio.app_volume") cur.raw.arg ??= AUDIO.apps[0] || "Spotify.exe"; else delete cur.raw.arg; }
+    else { cur.raw.target = e.target.value; if (e.target.value === "audio.app_volume") cur.raw.arg ??= AUDIO.apps[0] || "Spotify"; else delete cur.raw.arg; }
     changed(); buildForm(); } },
     h("option", { value: "" }, "does nothing"),
     ...Object.entries(VALUES).map(([k, label]) => h("option", { value: k, selected: t === k }, `controls ${label.toLowerCase()}`)));
@@ -715,7 +730,7 @@ $("#btn-lighting").onclick = async () => {
     const set = (k, v) => { if (v === "" || v === undefined) delete z[k]; else z[k] = v; commit(); };
     const look = h("select", { onchange: e => set("mode", e.target.value) },
       ...LIGHT_LOOKS.map(([v, label]) => h("option", { value: v, selected: (z.mode ?? "") === v }, label)));
-    const color = h("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(z.color || "") ? z.color : "#3cc86e",
+    const color = h("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(z.color || "") ? z.color : META.accent || "#3cc86e",
       oninput: e => set("color", e.target.value) });
     const rows = [field("Colour", color, look)];
     if (hasValue) rows.push(field("", h("label", { class: "check" }, h("input", { type: "checkbox", checked: z.brightness === "value",

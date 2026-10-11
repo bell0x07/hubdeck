@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import sys
 import threading
 from typing import Any, Callable, ClassVar
 
@@ -36,12 +37,19 @@ class Plugin:
     actions: ClassVar[dict[str, str]] = {}   # action -> help text
     states: ClassVar[dict[str, str]] = {}    # state -> help text
     values: ClassVar[dict[str, str]] = {}    # adjustable value (turn/fader target) -> help text
+    platforms: ClassVar[tuple[str, ...] | None] = None   # sys.platform values it works on; None = all
 
     def __init__(self, ctx: PluginContext, config: dict):
         self.ctx = ctx
         self.config = config
         self.log = ctx.log
         self.watched: set[tuple[str, Any]] = set()
+
+    @classmethod
+    def available(cls) -> bool:
+        """Whether it works on this OS. Configs may still use it elsewhere (one config for
+        several machines); the editor only offers what's available."""
+        return cls.platforms is None or sys.platform in cls.platforms
 
     @classmethod
     def check_config(cls, config: dict) -> list[str]:
@@ -51,6 +59,14 @@ class Plugin:
     @classmethod
     def check_action(cls, action: str, arg: Any) -> str | None:
         """Return a problem with an action's argument, or None."""
+        return None
+
+    @classmethod
+    def check_state(cls, name: str, config: dict) -> str | None:
+        """Return a problem with a reference to state `name`, or None. Plugins whose states
+        come from their settings (`config`, the plugins.<name> section) override this."""
+        if name not in cls.states:
+            return f"{cls.name} has no state {name!r} (available: {', '.join(cls.states) or 'none'})"
         return None
 
     def start(self):
@@ -92,6 +108,7 @@ class ThreadedPlugin(Plugin):
         self._queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._pending: tuple[str, Any] | None = None   # taken off the queue while merging adjusts
 
     def start(self):
         self._thread = threading.Thread(target=self._run, name=f"hubdeck-{self.name}", daemon=True)
@@ -121,11 +138,11 @@ class ThreadedPlugin(Plugin):
             self.setup()
             while not self._stop.is_set():
                 try:
-                    action, arg = self._queue.get(timeout=self.interval)
+                    action, arg = self._next()
                     if action:
                         try:
                             if action == _ADJUST:
-                                self.adjust_value(*arg)
+                                self.adjust_value(*self._merge_adjusts(arg))
                             elif action == _SET:
                                 self.set_value(*arg)
                             else:
@@ -147,6 +164,27 @@ class ThreadedPlugin(Plugin):
                 self.teardown()
             except Exception:
                 self.log.exception("teardown failed")
+
+    def _next(self) -> tuple[str, Any]:
+        if self._pending is not None:
+            item, self._pending = self._pending, None
+            return item
+        return self._queue.get(timeout=self.interval)
+
+    def _merge_adjusts(self, arg):
+        """Fold the adjusts of the same value that queued up meanwhile into one,
+        so a fast spin of a slow target (AppleScript, ~10 ms) doesn't build a backlog."""
+        name, target, delta = arg
+        while self._pending is None:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if item[0] == _ADJUST and item[1][:2] == (name, target):
+                delta += item[1][2]
+            else:
+                self._pending = item
+        return name, target, delta
 
     # override these ----------------------------------------------------
     def setup(self):

@@ -4,33 +4,44 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import shutil
-import subprocess
-import sys
 import threading
 import webbrowser
 from pathlib import Path
 
 import pystray
+from PIL import Image, ImageDraw
 
 from . import PROJECT_URL, instance, paths
 from .config import ConfigError, ConfigSource
 from .engine import Engine
 from .logs import setup_logging
-from .render.faces import RenderFace, render
+from .platforms import current
+from .render import tabler
+from .render.faces import RenderFace, parse_color, render
 
 log = logging.getLogger("hubdeck.tray")
 
 
+TRAY_GLYPH = "layout-grid"
+
+
+def _glyph_image(size: int = 64):
+    """The tray icon as a plain black shape on transparent, for menu bars that tint icons (macOS)."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(img).text((size / 2, size / 2), chr(tabler.codepoint(TRAY_GLYPH)), font=tabler.font(int(size * 1.15)),
+                             fill="black", anchor="mm")
+    return img
+
+
 def _icon_image():
-    face = RenderFace(bg=(25, 25, 30), fg=(60, 200, 110), label_color=(255, 255, 255), icon="layout-grid")
+    face = RenderFace(bg=(25, 25, 30), fg=parse_color("accent"), label_color=(255, 255, 255), icon=TRAY_GLYPH)
     return render(face, size=64)
 
 
 def _open(path: Path):
-    if sys.platform == "win32" and path.exists():
-        os.startfile(path)
+    if path.exists():
+        current().open(str(path))
 
 
 def _edit(path: Path, template: Path):
@@ -39,21 +50,7 @@ def _edit(path: Path, template: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(template, path)
         log.info("created %s", path)
-    if sys.platform != "win32":
-        return
-    for verb in ("edit", "open"):
-        try:
-            os.startfile(path, verb)
-            return
-        except OSError:
-            continue
-    subprocess.Popen(["notepad.exe", str(path)])  # no editor registered for .yaml
-
-
-def _message_box(text: str):
-    if sys.platform == "win32":
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(None, text, "hubdeck", 0x40)
+    current().edit(path)
 
 
 def main(argv=None):
@@ -63,7 +60,7 @@ def main(argv=None):
 
     setup_logging(console=False)
     if not instance.acquire():
-        _message_box("hubdeck is already running (check the system tray).")
+        current().message_box("hubdeck is already running (check the system tray).")
         return
     source = ConfigSource(Path(args.config) if args.config else None)
     engine = Engine(source)
@@ -96,6 +93,21 @@ def main(argv=None):
         else:
             webbrowser.open(editor["server"].url)
 
+    def notify(message: str, title: str):
+        try:
+            if current().notify(title, message):
+                return
+        except Exception:
+            log.debug("system notification failed", exc_info=True)
+        icon.notify(message, title)
+
+    def toggle_login():
+        try:
+            current().set_start_at_login(not current().start_at_login())
+        except OSError as e:
+            log.error("%s", e)
+            notify(str(e), "hubdeck")
+
     def quit_app():
         engine.stop()
         if "server" in editor:
@@ -111,27 +123,33 @@ def main(argv=None):
         pystray.MenuItem("Reload config", lambda: engine.reload()),
         pystray.MenuItem("Open config folder", lambda: _open(source.path.parent)),
         pystray.MenuItem("Open log", lambda: _open(paths.log_path())),
+        pystray.MenuItem("Start at login", toggle_login, checked=lambda item: bool(current().start_at_login()),
+                         visible=current().start_at_login() is not None),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("GitHub project", lambda: webbrowser.open(PROJECT_URL)),
         pystray.MenuItem("Quit", quit_app),
     )
+    current().prepare_tray()
     icon = pystray.Icon("hubdeck", _icon_image(), "hubdeck", menu)
 
     def on_event(event, detail):
         if event == "error":
-            icon.notify(detail[-250:], "hubdeck: config error")
+            notify(detail[-250:], "hubdeck: config error")
         elif event == "reloaded":
-            icon.notify("Config reloaded", "hubdeck")
+            notify("Config reloaded", "hubdeck")
         if event in ("page", "reloaded"):
-            icon.title = f"hubdeck - {engine.current_page}"
-            icon.update_menu()
+            def refresh():
+                icon.title = f"hubdeck - {engine.current_page}"
+                icon.update_menu()
+            current().call_on_ui_thread(refresh)
 
     engine.listeners.append(on_event)
 
     def setup(icon):
         icon.visible = True
+        current().call_on_ui_thread(lambda: current().style_tray_icon(icon, _glyph_image()))
         if startup_error:
-            icon.notify(startup_error[-250:], "hubdeck: config error")
+            notify(startup_error[-250:], "hubdeck: config error")
         threading.Thread(target=engine.run, name="hubdeck-engine", daemon=True).start()
 
     icon.run(setup=setup)
