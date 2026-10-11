@@ -22,6 +22,16 @@ These four modules share one vendor SDK, `CoolTEK_SDK_CM_M0_V02.05.00.dll`. Modu
 - **LED modes:** 0 off, 1 static, 2 breathing, 3 strobe, 4 spring, 5 cycling, 6 random, 7 wave, 8 water, 9 rainbow. Only modes 1–4 use the colour.
 - `save = 1` keeps the setting after a restart. hubdeck uses 0 at runtime.
 
+## Lighting confirmed on hardware [hw]
+
+These were tested on the Base and Knobs with MasterHUB closed:
+
+- **Mode** `02 2c <module> <idx> <mode> 00`: static (1) and breathing (2) work. `idx ff` addresses all zones.
+- **Colour** `02 2d <module> <idx> R G B 00` changes the colour immediately.
+- **Brightness** `02 2e <module> <idx> <n>`: 5 is almost dark and 100 is full.
+- **With `save = 0`, get-feature 0x32/0x34 keep returning the saved values,** not the live ones. hubdeck therefore tracks the live state itself.
+- **Update rate:** colour writes at 20, 50 and 250 per second all looked smooth. hidapi manages ~250 writes/s. Software animations are not limited by the module.
+
 ## Get features [up]
 
 | id | meaning |
