@@ -154,6 +154,17 @@ class Platform(ABC):
     def prepare_tray(self):
         """Called once before the tray icon starts."""
 
+    def notify(self, title: str, message: str) -> bool:
+        """Show a notification the system's own way; False to let the tray library do it."""
+        return False
+
+    def start_at_login(self) -> bool | None:
+        """Whether hubdeck starts at login, or None when the tray can't offer the switch."""
+        return None
+
+    def set_start_at_login(self, on: bool):
+        raise Unsupported(f"starting at login is not supported on {self.name} yet")
+
     def style_tray_icon(self, icon, glyph):
         """Called on the UI thread once the pystray icon shows. `glyph` is the icon as a black
         shape on transparent (PIL), for systems that draw menu-bar icons as tinted templates."""

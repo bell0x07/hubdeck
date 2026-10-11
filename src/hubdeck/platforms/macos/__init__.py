@@ -69,8 +69,19 @@ def _accent_prefs() -> tuple:
 
 
 def _resolve_accent() -> tuple[int, int, int]:
-    r = subprocess.run([sys.executable, "-I", "-c", _ACCENT_SCRIPT], capture_output=True, text=True, timeout=10)
+    # a clean environment instead of -I: inside hubdeck.app, sys.executable is the app's launcher,
+    # which acts as plain Python with HUBDECK_PYTHON=1 and needs its own PYTHONHOME
+    env = {"HOME": os.environ.get("HOME", ""), "PATH": "/usr/bin:/bin", "HUBDECK_PYTHON": "1"}
+    r = subprocess.run([sys.executable, "-c", _ACCENT_SCRIPT], capture_output=True, text=True, timeout=10, env=env)
     return tuple(round(max(0.0, min(1.0, float(x))) * 255) for x in r.stdout.split())
+
+
+def in_app_bundle() -> bool:
+    """True when running as hubdeck.app (its own identity: notifications, login item)."""
+    from Foundation import NSBundle
+
+    from ..._bundle import BUNDLE_ID
+    return NSBundle.mainBundle().bundleIdentifier() == BUNDLE_ID
 
 
 class MacPlatform(PosixPlatform):
@@ -80,6 +91,7 @@ class MacPlatform(PosixPlatform):
     def __init__(self):
         super().__init__()
         self._accent: tuple[tuple, tuple[int, int, int] | None] = ((), None)   # (settings, colour)
+        self._notify_asked = False
 
     def app_data_dir(self) -> Path:
         return Path.home() / "Library" / "Application Support"
@@ -99,10 +111,47 @@ class MacPlatform(PosixPlatform):
     def message_box(self, text: str):
         """A notification: an alert from osascript, a background helper, opens behind other windows."""
         super().message_box(text)          # also on stderr, for whoever started it from Terminal
+        if self.notify("hubdeck", text):
+            return
         try:
             osascript(f"display notification {quote(text)} with title \"hubdeck\"")
         except OSError:
             pass
+
+    def notify(self, title: str, message: str) -> bool:
+        """Notification Center, with hubdeck's icon: only inside hubdeck.app (it needs a bundle id)."""
+        if not in_app_bundle():
+            return False
+        import uuid
+
+        from UserNotifications import (UNAuthorizationOptionAlert, UNMutableNotificationContent,
+                                       UNNotificationRequest, UNUserNotificationCenter)
+        center = UNUserNotificationCenter.currentNotificationCenter()
+        if not self._notify_asked:
+            center.requestAuthorizationWithOptions_completionHandler_(UNAuthorizationOptionAlert, lambda ok, err: None)
+            self._notify_asked = True
+        content = UNMutableNotificationContent.alloc().init()
+        content.setTitle_(title)
+        content.setBody_(message)
+        request = UNNotificationRequest.requestWithIdentifier_content_trigger_(str(uuid.uuid4()), content, None)
+        center.addNotificationRequest_withCompletionHandler_(request, None)
+        return True
+
+    def start_at_login(self) -> bool | None:
+        if not in_app_bundle():
+            return None
+        try:
+            from ServiceManagement import SMAppService   # macOS 13+
+        except ImportError:
+            return None
+        return SMAppService.mainAppService().status() == 1   # SMAppServiceStatusEnabled
+
+    def set_start_at_login(self, on: bool):
+        from ServiceManagement import SMAppService
+        service = SMAppService.mainAppService()
+        ok, error = (service.registerAndReturnError_ if on else service.unregisterAndReturnError_)(None)
+        if not ok:
+            raise OSError(f"could not change the login item: {error}")
 
     def ipc_dirs(self) -> list[str]:
         # Discord puts its socket in the per-user $TMPDIR (/var/folders/...)

@@ -57,9 +57,24 @@ Run them as `.\.venv\Scripts\hubdeck.exe …` on Windows and `.venv/bin/hubdeck 
 
 ## macOS
 
-Everything works as on Windows, with these differences:
+### The hubdeck app
 
-- **Permissions.** macOS asks for these the first time they're needed. Grant them to the app hubdeck runs in: Terminal (or iTerm, …) for `hubdeck run`, or Python for a login item.
+1. Download `hubdeck-<version>-macos-arm64.zip` (Apple Silicon) from the CI artifacts or releases, unzip it, and drag **hubdeck.app** into **Applications**.
+2. Open it. A downloaded build that isn't notarised needs **right-click › Open** the first time, or **Open Anyway** in System Settings › Privacy & Security.
+3. hubdeck lives in the menu bar (no Dock icon). Its menu has **Start at login**.
+4. For the command line, and for Shortcuts, link it once:
+
+   ```bash
+   sudo ln -s /Applications/hubdeck.app/Contents/MacOS/hubdeck /usr/local/bin/hubdeck
+   ```
+
+   Then `hubdeck send …`, `hubdeck validate` and the rest work as anywhere else. Started with no arguments, the same file is the menu-bar app.
+
+Running from a source checkout (see [Install](#install)) works too. Permissions then go to Terminal or Python instead of hubdeck, and notifications show the Script Editor icon.
+
+### Differences from Windows
+
+- **Permissions.** macOS asks the first time they're needed, for **hubdeck** (or Terminal/Python when running from source):
   - **Accessibility** (System Settings › Privacy & Security) for the `keyboard` actions. Without it macOS drops the keystrokes, and hubdeck logs which permission is missing. Restart hubdeck after allowing it.
   - **Automation** for per-app volume: macOS asks once whether hubdeck may control the app (e.g. Music). Until you answer, that app's volume is unavailable, but everything else keeps working.
   - The modules themselves need no permission.
@@ -67,10 +82,9 @@ Everything works as on Windows, with these differences:
 - **Per-app volume:** macOS has no per-app mixer, so `audio.app_volume` only works for apps that expose a volume to AppleScript, such as **Spotify** and **Music**. Name the app as it appears in the Dock, e.g. `arg: Spotify`. Windows names like `spotify.exe` work too, so one config can serve both. Each change takes the app about 0.2 s, so hubdeck sends them in the background and skips to the latest level while you turn.
 - **Microphone mute:** a microphone with no mute switch (many USB mics) is muted by setting its input volume to 0 and restoring it afterwards.
 - **`open`** also takes an app name, e.g. `{open: Spotify}`.
-- **Menu bar:** the tray icon sits in the menu bar like other Mac icons, and clicking it opens the menu. Notifications currently show the Script Editor icon, because they are posted through AppleScript.
-- **The 2xRoller module** sent no input on macOS in testing (the knobs, Dial and keys work). It's not known yet whether that's macOS or the test unit.
 - **Colours:** the default icon colour is your macOS accent colour (System Settings › Appearance), and it follows changes within about 2 seconds. Use `accent` as a colour anywhere to get it, e.g. `lighting: {base: {color: accent}}`. On other systems `accent` is hubdeck green.
-- **Start at login:** save this as `~/Library/LaunchAgents/com.github.hubdeck.plist`, with the path to your clone, then run `launchctl load ~/Library/LaunchAgents/com.github.hubdeck.plist`:
+- **The 2xRoller module** sent no input on macOS in testing (the knobs, Dial and keys work). It's not known yet whether that's macOS or the test unit.
+- **Start at login from source:** save this as `~/Library/LaunchAgents/com.github.hubdeck.plist`, with the path to your clone, then run `launchctl load ~/Library/LaunchAgents/com.github.hubdeck.plist`:
 
   ```xml
   <?xml version="1.0" encoding="UTF-8"?>
@@ -83,6 +97,37 @@ Everything works as on Windows, with these differences:
   </dict>
   </plist>
   ```
+
+### Building the app
+
+The app is built on **Linux**, in Docker or GitLab CI, with no Mac or Xcode involved. It's made of:
+- a standalone Python ([python-build-standalone](https://github.com/astral-sh/python-build-standalone))
+- the dependencies' macOS wheels
+- a small launcher cross-compiled with **zig**, so macOS sees hubdeck.app itself: its name, icon, notifications and permissions
+
+It's signed with **rcodesign**. Everything is in `packaging/macos/`, and `.gitlab-ci.yml` runs it on every push.
+
+```bash
+docker build --platform linux/amd64 -t hubdeck-macos-builder -f packaging/macos/Dockerfile packaging/macos
+docker run --rm --platform linux/amd64 -v "$PWD:/src" -w /src hubdeck-macos-builder
+```
+
+That writes `dist/hubdeck-<version>-macos-arm64.zip`. On a Mac, `python packaging/macos/build.py` also works directly, with `pip install ziglang packaging` and rcodesign (or codesign) available.
+
+**Signing** decides what the user sees:
+
+| set in the environment / CI variables | result |
+| --- | --- |
+| nothing | ad-hoc: works, but **macOS forgets the permissions on every update**, and the first launch needs right-click › Open |
+| `MACOS_SIGN_P12` (file) + `MACOS_SIGN_P12_PASSWORD` with a **self-signed** certificate | permissions **survive updates**; the first launch still needs right-click › Open |
+| the same with a **Developer ID** certificate, plus `MACOS_NOTARY_API_KEY` (file) | signed and notarised: opens normally ($99/year Apple Developer Program) |
+
+To make a self-signed certificate once, keep the `.p12` somewhere safe and add it as a *File* variable in GitLab:
+
+```bash
+rcodesign generate-self-signed-certificate --person-name "hubdeck" --validity-days 3650 \
+  --p12-file hubdeck-signing.p12 --p12-password '<a password>'
+```
 
 ## Editor
 

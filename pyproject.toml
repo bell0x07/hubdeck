@@ -22,6 +22,8 @@ dependencies = [
     "comtypes>=1.4; sys_platform == 'win32'",
     "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'",
     "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-UserNotifications>=10; sys_platform == 'darwin'",
+    "pyobjc-framework-ServiceManagement>=10; sys_platform == 'darwin'",
 ]
 
 [project.urls]

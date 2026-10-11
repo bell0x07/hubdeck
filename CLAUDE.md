@@ -31,6 +31,7 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
   - `server.py` is a stdlib HTTP server on 127.0.0.1 with a per-run token and a Host check, serving a JSON API and `assets/gui/` (vanilla JS, no build).
   - `doc.py` edits config.yaml with ruamel.yaml round-trip. It keeps comments, `!secret` tags and the user's spacing on untouched lines, and validates with the real loader before writing.
   - Module positions and the Base orientation (`modules.<kind>.position`, `device.orientation`) are editor-only; the engine ignores them.
+- **`packaging/macos/`:** builds hubdeck.app on Linux (Docker, `.gitlab-ci.yml`). `build.py` unpacks python-build-standalone, pip-installs the macOS wheels (`--platform`; macOS-only dependencies are named explicitly, since pip judges markers by the build machine), cross-compiles `launcher.c` with zig and signs with rcodesign. The launcher loads `libpython` in-process (so macOS sees the app's identity) and runs `hubdeck._bundle`: no arguments = tray, otherwise the CLI; `HUBDECK_PYTHON=1` makes it plain Python (used by the accent-colour helper). Bundle id: `hubdeck._bundle.BUNDLE_ID`. Inside the app, notifications go through UNUserNotificationCenter and the tray offers "Start at login" (SMAppService).
 - **`cli.py` / `cli_probe.py`:** the `hubdeck` command, including the hidden `probe` tools. `tray.py` is `hubdeck-tray`.
 
 ## Hardware facts that matter (all verified)

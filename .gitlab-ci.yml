@@ -1,0 +1,38 @@
+# hubdeck CI: tests on Linux, and hubdeck.app for macOS built on Linux (no Mac runner needed).
+#
+# Optional CI/CD variables for signing (Settings > CI/CD > Variables), see packaging/macos/build.py:
+#   MACOS_SIGN_P12            File   .p12 certificate (self-signed is enough for permissions to survive updates)
+#   MACOS_SIGN_P12_PASSWORD   Masked its password
+#   MACOS_NOTARY_API_KEY      File   App Store Connect API key JSON (with a Developer ID certificate)
+
+stages: [test, build]
+
+default:
+  image: python:3.13.7-slim-bookworm
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_ROOT_USER_ACTION: ignore
+
+test:
+  stage: test
+  cache:
+    key: pip-test
+    paths: [.cache/pip]
+  script:
+    - pip install -q -e ".[dev]"
+    - python -m pytest -q
+
+macos-app:
+  stage: build
+  cache:
+    key: macos-app
+    paths: [.cache/pip, build/macos-cache]
+  script:
+    - python packaging/macos/install_tools.py
+    - python packaging/macos/build.py --arch arm64
+  artifacts:
+    name: "hubdeck-macos-$CI_COMMIT_REF_SLUG"
+    paths: [dist/*.zip]
+    expire_in: 30 days
