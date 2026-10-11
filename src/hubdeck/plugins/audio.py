@@ -1,8 +1,8 @@
-"""Windows audio: default speaker/microphone mute and volume, default output switching."""
+"""Windows audio: speaker/microphone mute and volume, per-app volume, default output switching."""
 
 from __future__ import annotations
 
-from .base import ThreadedPlugin
+from .base import ThreadedPlugin, value_state
 
 KINDS = {"speakers": "speakers", "speaker": "speakers", "output": "speakers",
          "microphone": "microphone", "mic": "microphone", "input": "microphone"}
@@ -32,7 +32,21 @@ class AudioPlugin(ThreadedPlugin):
         "mic_muted": "default recording device muted",
         "volume": "default playback volume 0-100",
         "output": "name of the default playback device",
+        "mic_volume": "default recording volume 0-100",
     }
+    values = {
+        "volume": "default playback volume 0-100",
+        "mic_volume": "default recording (microphone) volume 0-100",
+        "app_volume": "volume of one app 0-100; arg: process name, e.g. spotify.exe",
+    }
+
+    @classmethod
+    def check_value(cls, name, arg):
+        if name == "app_volume" and not (isinstance(arg, str) and arg.strip()):
+            return "audio.app_volume needs arg: the app's process name, e.g. spotify.exe"
+        if name in ("volume", "mic_volume") and arg is not None:
+            return f"audio.{name} takes no arg"
+        return None
 
     @classmethod
     def check_action(cls, action, arg):
@@ -94,6 +108,52 @@ class AudioPlugin(ThreadedPlugin):
                 self.log.warning("no active playback device matching %r", arg)
         self.tick()
 
+    # -- values ------------------------------------------------------------
+    def _sessions(self, app: str):
+        want = app.lower()
+        for s in self.au.GetAllSessions():
+            proc = s.Process
+            if proc is None:
+                continue
+            name = proc.name().lower()
+            if name == want or name.removesuffix(".exe") == want.removesuffix(".exe"):
+                yield s
+
+    def _get(self, name, arg) -> float | None:
+        if name == "app_volume":
+            levels = [s.SimpleAudioVolume.GetMasterVolume() for s in self._sessions(arg)]
+            return max(levels) * 100 if levels else None
+        ep = self._endpoint("microphone" if name == "mic_volume" else "speakers").EndpointVolume
+        return ep.GetMasterVolumeLevelScalar() * 100
+
+    def _set(self, name, arg, level: float):
+        level = max(0.0, min(100.0, level)) / 100
+        if name == "app_volume":
+            for s in self._sessions(arg):
+                s.SimpleAudioVolume.SetMasterVolume(level, None)
+        else:
+            ep = self._endpoint("microphone" if name == "mic_volume" else "speakers").EndpointVolume
+            ep.SetMasterVolumeLevelScalar(level, None)
+
+    def adjust_value(self, name, arg, delta):
+        current = self._get(name, arg)
+        if current is None:
+            self.log.info("%s %s: not available (app not playing audio?)", name, arg or "")
+            return
+        self._set(name, arg, current + delta)
+        self._publish_value(name, arg)
+
+    def set_value(self, name, arg, value):
+        self._set(name, arg, value)
+        self._publish_value(name, arg)
+
+    def _publish_value(self, name, arg):
+        try:
+            v = self._get(name, arg)
+        except Exception:
+            v = None
+        self.ctx.set_state(value_state(name, arg), None if v is None else round(v))
+
     def _is_output(self, dev) -> bool:
         # render endpoint ids start with {0.0.0.00000000}, capture ones with {0.0.1.00000000}
         return str(dev.id).startswith("{0.0.0.")
@@ -109,6 +169,11 @@ class AudioPlugin(ThreadedPlugin):
             for k in ("speaker_muted", "volume", "output"):
                 self.ctx.set_state(k, None)
         try:
-            self.ctx.set_state("mic_muted", bool(self._endpoint("microphone").EndpointVolume.GetMute()))
+            mic = self._endpoint("microphone").EndpointVolume
+            self.ctx.set_state("mic_muted", bool(mic.GetMute()))
+            self.ctx.set_state("mic_volume", round(mic.GetMasterVolumeLevelScalar() * 100))
         except Exception:
             self.ctx.set_state("mic_muted", None)
+            self.ctx.set_state("mic_volume", None)
+        for name, arg in list(self.watched):
+            self._publish_value(name, arg)

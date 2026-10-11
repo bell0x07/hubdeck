@@ -6,9 +6,17 @@
 device:
   ownership: shared          # shared: only touch keys used below (MasterCanvas keeps the rest)
                              # exclusive: hubdeck owns all 15 keys, unused ones are blank
-  rotate: 0                  # 0 / 90 / 180 / 270 if faces look sideways
-  brightness: null           # 0-100, or null to leave it alone
   reassert_seconds: 5        # repaint our keys this often in case MasterCanvas draws over them (0 = off)
+
+# How each module is mounted (rotate: clockwise from its default position, 0/90/180/270)
+# and screen backlight (0-100, null = leave as is). Control numbers follow reading order
+# (left to right, top to bottom) in the mounted orientation.
+modules:
+  keys:    {rotate: 0, brightness: null}
+  dial:    {rotate: 0, brightness: null}
+  knobs:   {rotate: 0}     # default: one knob on top, two below
+  rollers: {rotate: 0}     # default: rollers side by side
+  faders:  {rotate: 0}     # default: faders vertical, 0 at the bottom
 
 defaults:
   long_press_ms: 500
@@ -21,6 +29,12 @@ defaults:
 #   discord:
 #     client_id: !secret discord_client_id
 #     client_secret: !secret discord_client_secret
+
+# RGB lighting for the Base, knobs and faders (uncomment what you have). Nothing is stored on the modules.
+# lighting:
+#   base:   {color: "#3cc86e", state: audio.speaker_muted, on: {color: "#c81e28", mode: breathing}}
+#   knobs:  {all: {color: white, brightness: value, min_brightness: 10}}    # brighter = higher value
+#   faders: {all: {animate: {effect: pulse, colors: ["#3cc86e", "#000000"], period: 2}}}
 
 start_page: main
 pages:
@@ -59,6 +73,33 @@ pages:
       #   state: discord.holding
       #   face:    {icon: hand-stop, label: HOLD}
       #   face_on: {icon: microphone-off, label: HELD, bg: "#c81e28", fg: white}
+
+      # Pictures and animated GIFs (file next to this config, or an http(s) URL):
+      # 7: {face: {image: cat.gif, label: Meow}}
+
+    # Other modules: uncomment the ones you have. Numbers follow reading order as mounted
+    # (see modules: above); pages without these sections use the start page's.
+    #
+    # dial:                                   # round screen: volume with a gauge, press = mute
+    #   turn: {target: audio.volume, step: 2}
+    #   action: audio.toggle_mute
+    #   state: audio.speaker_muted
+    #   face:    {icon: volume, label: "{value}%", gauge: true}
+    #   face_on: {icon: volume-off, label: MUTED, bg: "#c81e28", fg: white}
+    #
+    # knobs:                                  # 1 = top, 2 = bottom-left, 3 = bottom-right
+    #   1: {turn: {target: audio.app_volume, arg: spotify.exe}}
+    #   2: {turn: audio.mic_volume, action: {audio.toggle_mute: microphone}}
+    #   3: {turn: {target: audio.app_volume, arg: discord.exe}}
+    #
+    # rollers:                                # 1 = left, 2 = right
+    #   1: {turn: {cw: {media: next}, ccw: {media: prev}}}
+    #   2: {turn: {target: audio.volume, step: 2}}
+    #
+    # faders:                                 # 1-5 left to right; soft takeover, no jumps
+    #   1: {target: audio.volume}
+    #   2: {target: audio.mic_volume}
+    #   3: {target: audio.app_volume, arg: spotify.exe}
 
   media:
     keys:

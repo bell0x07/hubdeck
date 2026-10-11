@@ -11,7 +11,7 @@ import yaml
 from pydantic import ValidationError
 
 from .. import paths
-from .schema import TEMPLATE_RE, Config
+from .schema import TEMPLATE_RE, VALUE_RE, Config, ControlDef
 
 
 class ConfigError(Exception):
@@ -82,8 +82,30 @@ def check_references(cfg: Config) -> list[str]:
     for name, settings in cfg.plugins.items():
         if name in REGISTRY:
             problems += REGISTRY[name].check_config(settings)
-    for page, num, kd in cfg.iter_keys():
-        where = f"pages.{page}.keys.{num}"
+    for where, target, arg in cfg.iter_targets():
+        p, n = target.split(".", 1)
+        plugin = REGISTRY.get(p)
+        if plugin is None:
+            continue
+        if n not in plugin.values:
+            problems.append(f"{where}: {p} has no value {n!r} to adjust "
+                            f"(available: {', '.join(plugin.values) or 'none'})")
+        elif err := plugin.check_value(n, arg):
+            problems.append(f"{where}: {err}")
+    for kind, idx, zone in cfg.lighting.zones():
+        for ref in [zone.state] if zone.state else []:
+            p, n = ref.split(".", 1)
+            if p in REGISTRY and n not in REGISTRY[p].states:
+                problems.append(f"lighting.{kind}: {p} has no state {n!r} "
+                                f"(available: {', '.join(REGISTRY[p].states) or 'none'})")
+        if (zone.on or zone.unknown) and not zone.state:
+            problems.append(f"lighting.{kind}: 'on'/'unknown' need a 'state' to switch on")
+    for where, kd in cfg.iter_defs():
+        has_target = isinstance(kd, ControlDef) and kd.turn is not None and kd.turn.target is not None
+        for f in kd.faces():
+            if not has_target and (f.gauge or any(VALUE_RE.search(s or "") for s in (f.text, f.label))):
+                problems.append(f"{where}: 'gauge' and {{value}} need a turn target to show")
+                break
         for a in kd.all_actions():
             plugin = REGISTRY.get(a.plugin)
             if plugin is None:
@@ -112,6 +134,22 @@ def check_references(cfg: Config) -> list[str]:
     return problems
 
 
+def _resolve_images(cfg: Config, base: Path) -> list[str]:
+    """Make image paths absolute (relative = next to the config) and check they exist."""
+    from ..render.images import is_url
+    problems = []
+    for where, kd in cfg.iter_defs():
+        for face in kd.faces():
+            if face.image and not is_url(face.image):
+                p = Path(os.path.expandvars(face.image)).expanduser()
+                if not p.is_absolute():
+                    p = base / p
+                if not p.is_file():
+                    problems.append(f"{where}: image {face.image!r} not found ({p})")
+                face.image = str(p)
+    return problems
+
+
 def load_config(path: Path, secrets: Path | None = None) -> Config:
     path = Path(path)
     data = _read_yaml(path)
@@ -134,7 +172,7 @@ def load_config(path: Path, secrets: Path | None = None) -> Config:
         cfg = Config.model_validate(data)
     except ValidationError as e:
         raise ConfigError(f"{path}: invalid config\n{format_validation_error(e)}")
-    problems = check_references(cfg)
+    problems = check_references(cfg) + _resolve_images(cfg, path.parent)
     if problems:
         raise ConfigError(f"{path}: invalid config\n" + "\n".join(f"  {p}" for p in problems))
     return cfg
