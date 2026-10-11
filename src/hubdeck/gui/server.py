@@ -321,6 +321,33 @@ class GuiServer:
                     face.image = str(p if p.is_absolute() else self.source.path.parent / p)
         return self.preview.render(cfg, page, section, kd, "round" if section == "dial" else "square")
 
+    def audio_info(self) -> dict:
+        """Apps currently holding an audio session and the active playback devices, for pickers."""
+        out = {"apps": [], "outputs": []}
+
+        def work():
+            import warnings
+            warnings.simplefilter("ignore")    # pycaw warns about devices with missing properties
+            try:
+                import comtypes
+                from pycaw.pycaw import AudioUtilities
+                comtypes.CoInitialize()
+                try:
+                    apps = {s.Process.name() for s in AudioUtilities.GetAllSessions() if s.Process}
+                    out["apps"] = sorted(apps, key=str.lower)
+                    out["outputs"] = sorted({d.FriendlyName for d in AudioUtilities.GetAllDevices()
+                                             if d.FriendlyName and str(d.id).startswith("{0.0.0.")
+                                             and "active" in str(d.state).lower()})
+                finally:
+                    comtypes.CoUninitialize()
+            except Exception:
+                log.debug("audio info failed", exc_info=True)
+
+        t = threading.Thread(target=work, daemon=True)   # COM needs its own initialised thread
+        t.start()
+        t.join(5)
+        return out
+
     def icon_png(self, name: str, filled: bool) -> bytes:
         cp = tabler.codepoint(name, filled)
         img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
@@ -394,6 +421,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(a.api_global(q["name"]))
             if url.path == "/api/yaml":
                 return self._json(a.api_yaml())
+            if url.path == "/api/audio":
+                return self._json(a.audio_info())
             if url.path == "/api/icons":
                 hits = tabler.search(q.get("q", ""), q.get("filled") == "1")[:150]
                 return self._json({"icons": hits})
