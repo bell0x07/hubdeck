@@ -41,6 +41,24 @@ This installs two commands into `.venv\Scripts`:
 - **For everyday use, run `hubdeck-tray`.** Clicking the tray icon opens the config for editing. The menu can switch pages, reload, open the log and open this repo.
 - **To start at login,** put a shortcut to `.venv\Scripts\hubdeck-tray.exe` in `shell:startup`.
 
+## Editor
+
+hubdeck has a visual editor that runs in your browser. It's served by hubdeck on `127.0.0.1` only.
+
+- **Open it** by clicking the tray icon ("Open editor"). Opened that way, it shows **live state** and which page is on the device. Without the tray, `hubdeck gui` opens it on its own.
+- **Your device is drawn as it sits on the desk.** The Base grid is horizontal 6×4 or vertical 4×6. Modules sit where you drag them, rotated as mounted (↻ on each module), with every control numbered in reading order.
+- **Click any control to edit it:**
+  - face (icon search, label, colours, image/GIF), with a live preview rendered exactly like the device
+  - press, long-press and double-press actions, key down/up
+  - state-driven faces
+  - turning (a value target or actions)
+  - fader targets
+- **Every item also has a YAML tab** for anything the form doesn't cover.
+- **Global settings:** pages (add, rename, delete, start page), **Lighting**, **Device & modules** (base orientation, mounting, backlight) and the whole file as **YAML**.
+- **Saving checks the whole config first.** An invalid change is shown and never written.
+- **Your comments and hand-aligned spacing in `config.yaml` are kept;** only the lines you changed are rewritten.
+- **A running hubdeck applies saved changes immediately.**
+
 ## Files
 
 | file | where |

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hubdeck</title>
+<link rel="stylesheet" href="/style.css">
+<script>window.TOKEN = "__TOKEN__";</script>
+</head>
+<body>
+<header>
+  <div class="brand">hubdeck</div>
+  <nav id="pages"></nav>
+  <button id="add-page" class="ghost" title="Add a page">+ New page</button>
+  <div class="spacer"></div>
+  <button id="btn-lighting">💡 Lighting</button>
+  <button id="btn-settings">⚙ Device</button>
+  <button id="btn-yaml" class="ghost" title="Edit the whole config file">Advanced</button>
+  <span id="status" class="pill">loading…</span>
+</header>
+
+<div id="error" class="banner hidden"></div>
+
+<main>
+  <section id="device-area">
+    <div class="page-tools">
+      <h1 id="page-title"></h1>
+      <button id="page-start" class="small ghost">Make this the start page</button>
+      <button id="page-rename" class="small ghost">Rename</button>
+      <button id="page-delete" class="small ghost danger">Delete page</button>
+    </div>
+    <div id="base"></div>
+    <div id="unplaced"></div>
+    <p class="hint">👆 Click any key, knob, roller, fader or the dial to set it up. Drag a module by its title to
+      where it sits on your base, and press ↻ if it's mounted turned. Changes apply to your device as soon as you save.</p>
+  </section>
+
+  <aside id="editor" class="hidden">
+    <div class="ed-head">
+      <div><h2 id="ed-title"></h2><div id="ed-sub" class="muted"></div></div>
+      <button id="ed-close" class="small ghost" title="Close">✕</button>
+    </div>
+    <div id="ed-preview-wrap"><img id="ed-preview" alt=""></div>
+    <div class="tabs">
+      <button data-tab="form" class="active">Simple</button>
+      <button data-tab="yaml">Advanced (YAML)</button>
+    </div>
+    <div id="ed-form"></div>
+    <div id="ed-yaml-wrap" class="hidden">
+      <p class="muted">The exact settings for this control, as written in your config file.</p>
+      <textarea id="ed-yaml" spellcheck="false"></textarea>
+    </div>
+    <div id="ed-error" class="banner hidden"></div>
+    <div class="ed-actions">
+      <button id="ed-save" class="primary">Save</button>
+      <button id="ed-revert" class="ghost">Undo changes</button>
+      <div class="spacer"></div>
+      <button id="ed-delete" class="ghost danger">Clear</button>
+    </div>
+  </aside>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlg-form">
+    <div class="ed-head"><h2 id="dlg-title"></h2><button value="close" class="small ghost">✕</button></div>
+    <div class="tabs" id="dlg-tabs"></div>
+    <div id="dlg-body"></div>
+    <textarea id="dlg-yaml" class="hidden" spellcheck="false"></textarea>
+    <div id="dlg-error" class="banner hidden"></div>
+    <div class="ed-actions">
+      <button id="dlg-save" class="primary" value="">Save</button>
+      <div class="spacer"></div>
+      <button value="close" class="ghost">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/app.js"></script>
+</body>
+</html>

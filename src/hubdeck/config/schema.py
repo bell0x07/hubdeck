@@ -362,6 +362,7 @@ class Lighting(_Model):
 class Device(_Model):
     ownership: Literal["shared", "exclusive"] = "shared"
     reassert_seconds: float = Field(default=5, ge=0)
+    orientation: Literal["horizontal", "vertical"] = "horizontal"   # the Base: 6x4 or 4x6 cells (editor layout)
 
 
 Rotation = Literal[0, 90, 180, 270]
@@ -369,6 +370,7 @@ Rotation = Literal[0, 90, 180, 270]
 
 class ModuleSettings(_Model):
     rotate: Rotation = 0   # clockwise, from the module's default mounting
+    position: tuple[int, int] | None = None   # top-left cell on the Base [column, row] (editor layout)
 
 
 class ScreenSettings(ModuleSettings):

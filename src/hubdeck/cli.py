@@ -128,6 +128,22 @@ def cmd_icons(args):
     print(f"({len(hits)} matches, Tabler {tabler.version()}; browse at https://tabler.io/icons)")
 
 
+def cmd_gui(args):
+    from .gui.server import GuiServer
+    from .logs import setup_logging
+
+    setup_logging(console=True)
+    src = _source(args)
+    if not src.path.exists():
+        sys.exit(f"{src.path} not found (create one with: hubdeck init)")
+    server = GuiServer(src, port=args.port)
+    print(f"hubdeck editor: {server.url}  (Ctrl+C to stop). For live state, open it from the tray instead.")
+    try:
+        server.serve_forever(open_browser=not args.no_browser)
+    except KeyboardInterrupt:
+        pass
+
+
 def cmd_where(args):
     print(f"config:  {Path(args.config) if args.config else paths.config_path()}")
     print(f"secrets: {paths.secrets_path(Path(args.config) if args.config else None)}")
@@ -158,6 +174,10 @@ def main(argv=None):
     p.add_argument("--filled", action="store_true")
     p.set_defaults(fn=cmd_icons)
     sub.add_parser("where", help="show config, secrets and log paths").set_defaults(fn=cmd_where)
+    p = sub.add_parser("gui", help="open the config editor in your browser")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--no-browser", action="store_true")
+    p.set_defaults(fn=cmd_gui)
     from .cli_probe import add_parser as add_probe_parser
     add_probe_parser(sub)
 
