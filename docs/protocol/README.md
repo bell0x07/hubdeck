@@ -1,6 +1,7 @@
 # MasterHub protocol notes
 
-These are the facts hubdeck relies on, with one file per module. Each fact is tagged with where it comes from:
+These are the facts hubdeck relies on, with one file per module. For the whole protocol in one
+document, see [../masterhub-protocol.md](../masterhub-protocol.md). Each fact is tagged with where it comes from:
 
 - **[hw]**: verified on real hardware by this project
 - **[up]**: taken from upstream docs and not re-verified yet
