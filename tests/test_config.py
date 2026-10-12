@@ -19,6 +19,19 @@ def test_single_page_shorthand_and_actions(write):
     assert cfg.used_plugins() == {"keyboard", "rec"}
 
 
+def test_python_action(write):
+    cfg = load_config(write("config.yaml", """
+        keys:
+          1:
+            action:
+              python: |
+                import os
+                log.info(os.getpid())
+    """))
+    assert cfg.pages["main"].keys[1].on_press == [
+        Action(plugin="python", name="exec", arg="import os\nlog.info(os.getpid())\n")]
+
+
 def test_secrets_from_file_and_env(write, monkeypatch):
     write("secrets.yaml", "discord_client_secret: s3cret\n")
     p = write("config.yaml", """
@@ -55,6 +68,8 @@ def test_missing_secret(write):
     ("keys: {1: {colour: red}}", "colour"),
     ("{}", "nothing defined"),
     ("keys: {1: {action: discord.mute}}\nplugins: {discord: {}}", "client_id is required"),
+    ("keys: {1: {action: {python: 'x ='}}}", r"python: .*\(line 1\)"),
+    ("keys: {1: {action: {python: 5}}}", "needs code"),
 ])
 def test_validation_errors(write, body, message):
     with pytest.raises(ConfigError, match=message):

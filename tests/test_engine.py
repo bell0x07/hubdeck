@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 
 from hubdeck.config import ConfigSource, load_config
 from hubdeck.device.fake import FakeKeyModule
@@ -155,6 +157,32 @@ def test_device_reconnect(write):
     eng.manager.factories["keys"] = FakeKeyModule
     eng.step()
     assert eng.device is not None and eng.device.images
+
+
+def wait_for(cond, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while not cond():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.01)
+
+
+def test_python_actions_run_concurrently(write, caplog):
+    eng, dev, clock = make(write, """
+        keys:
+          1: {action: {python: "released = gate.wait(5)"}}
+          2: {action: {python: "gate.set()"}}
+          3: {action: {python: "1 / 0"}}
+    """)
+    try:
+        ns = eng.plugins["python"].namespace
+        ns["gate"] = threading.Event()
+        for idx in (0, 1, 2):                     # key 1 blocks until key 2 opens the gate
+            tap(eng, dev, clock, idx)
+        wait_for(lambda: "released" in ns)
+        assert ns["released"] is True
+        wait_for(lambda: "ZeroDivisionError" in caplog.text)
+    finally:
+        eng.shutdown()
 
 
 def test_format_value():

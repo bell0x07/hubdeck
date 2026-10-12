@@ -284,7 +284,7 @@ If a module is mounted turned, set `modules.<module>.rotate` to the clockwise tu
 These share the same fields.
 
 - **Gestures:** `action` (same as `on_press`), `on_down`, `on_up`, `on_long_press` and `on_double_press`. A control with only a press action fires immediately on key-down. If it also has a long or double action, the press fires on release, once the gesture is clear. Rollers can't be pressed.
-- **Actions** are written either as `plugin.action` or as `{plugin.action: argument}`. A list runs several actions in order. The short forms are `page`, `keys`, `type`, `media`, `run` and `open`.
+- **Actions** are written either as `plugin.action` or as `{plugin.action: argument}`. A list runs several actions in order. The short forms are `page`, `keys`, `type`, `media`, `run`, `open` and `python`.
 - **Turning** (Dial, knobs, rollers) works one of two ways:
   - `turn: {target: plugin.value, arg: ..., step: 2, invert: false}` adjusts a value by `step` per click.
   - `turn: {cw: action, ccw: action}` runs actions per click (clockwise = up/right for rollers).
@@ -354,6 +354,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `page` | `goto` (`{page: name}`), `back`, `home` | none | none |
 | `keyboard` | `keys`, `key_down`, `key_up`, `media`, `type` (`cmd`/`win` is Command on macOS) | none | none |
 | `launch` | `open` (file, folder, app or URL; on macOS also an app name), `run` (shell command) | none | none |
+| `python` | `exec` (`{python: code}`) | none | none |
 | `audio` | `toggle_mute` / `mute` / `unmute` (speakers or microphone), `volume_up`, `volume_down`, `set_volume`, `set_output` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
 | `system` | none | `time`, `cpu`, `ram` | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
@@ -363,6 +364,26 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 - **Media keys:** `play_pause`, `next`, `prev`, `stop`, `vol_up`, `vol_down` and `mute`.
 - **Hold to mute:** put `on_down: discord.hold_mute_start` and `on_up: discord.hold_mute_end` on one key. This works even if you switch pages while holding it.
 - **App volume:** applies to every audio session of that process. An app that isn't playing audio has no value, so faders don't take it over.
+
+### Python actions
+
+`{python: code}` runs Python code inside the hubdeck process, with the same rights as hubdeck itself. A YAML block keeps longer code readable:
+
+```yaml
+5:
+  action:
+    python: |
+      import winsound
+      count = globals().get("count", 0) + 1
+      winsound.Beep(440 + 50 * count, 150)
+      log.info("pressed %d times", count)
+  face: {icon: brand-python, label: Beep}
+```
+
+- Syntax errors are reported when the config loads, like any other config error.
+- Errors raised while the code runs go to the log with a traceback.
+- All `python` actions share one set of variables, which lasts until hubdeck restarts. `log` writes to `hubdeck.log`. `print` only shows up when you use `hubdeck run`.
+- Every press runs its code on a new thread, so slow code never holds up other keys, including other `python` actions. Two presses can run at the same time, so code that changes shared variables from several keys may need a `threading.Lock`. Several `python` actions in one list also run at the same time, so put code that must run in order into a single snippet.
 
 ### Discord setup
 
