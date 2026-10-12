@@ -100,6 +100,26 @@ class FocusReader(ABC):
         system's own surfaces (taskbar, desktop, Alt+Tab, lock screen) or hubdeck itself."""
 
 
+@dataclass(frozen=True)
+class NowPlaying:
+    """The media session the media keys control."""
+    app: str                         # the app's name as the Start menu shows it (Spotify, Brave)
+    playing: bool                    # False: paused or stopped
+    title: str | None = None
+    artist: str | None = None
+
+
+class MediaReader(ABC):
+    """What's playing. Created and used on one thread of its own."""
+
+    @abstractmethod
+    def read(self) -> NowPlaying | None:
+        """The session the media keys control, or None when no app has one."""
+
+    def close(self):
+        pass
+
+
 class IpcConnection(ABC):
     """A local byte stream to another app (Discord's RPC pipe/socket)."""
 
@@ -155,6 +175,9 @@ class Platform(ABC):
 
     def focus(self) -> FocusReader:
         raise Unsupported(f"switching pages by app is not supported on {self.name} yet")
+
+    def media(self) -> MediaReader:
+        raise Unsupported(f"reading what's playing is not supported on {self.name} yet")
 
     def run_with_event_loop(self, run: Callable[[], None], stop: Callable[[], None]):
         """Run `run` until it returns, with the OS's event loop going where it needs one

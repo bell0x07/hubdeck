@@ -408,11 +408,22 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `python` | `exec` (`{python: code}`) | none | none |
 | `audio` | `toggle_mute` / `mute` / `unmute` (speakers or microphone), `volume_up`, `volume_down`, `set_volume`, `set_output` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
 | `system` | none | `time`, `cpu`, `ram` | none |
+| `media` (Windows) | none (the media keys are `{media: play_pause}` etc., from `keyboard`) | `playing`, `app`, `title`, `artist` (see below) | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
 
 - **Media keys:** `play_pause`, `next`, `prev`, `stop`, `vol_up`, `vol_down` and `mute`.
+- **What's playing (Windows):** the `media` states follow the app that the media keys control, the one the volume flyout shows. `media.playing` is true while it plays and false while it's paused. `media.app` is the app's Start menu name, such as `Spotify`, `Brave` or `Media Player`, and `media.title` and `media.artist` describe the track. All four are unknown while no app has media open. A play/pause key that shows which app it controls:
+
+  ```yaml
+  9:
+    action: {media: play_pause}
+    state: media.playing
+    face:         {icon: player-play, label: "{media.app}"}
+    face_on:      {icon: player-pause, label: "{media.app}"}
+    face_unknown: {icon: player-play, label: "-"}     # nothing open
+  ```
 - **Hold to mute:** put `on_down: discord.hold_mute_start` and `on_up: discord.hold_mute_end` on one key. This works even if you switch pages while holding it.
 - **App volume:** applies to every audio session of that process. An app that isn't playing audio has no value, so faders don't take it over.
 

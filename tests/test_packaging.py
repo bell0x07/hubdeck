@@ -96,7 +96,8 @@ def test_commit_time_from_ci():
 
 def test_dependencies_follow_the_target_system():
     names = {r.split(">")[0].split("=")[0] for r in common.requirements(windows.MARKERS)}
-    assert {"pycaw", "comtypes", "hidapi"} <= names and not any(n.startswith("pyobjc") for n in names)
+    assert {"pycaw", "comtypes", "hidapi", "winrt-Windows.Media.Control"} <= names
+    assert not any(n.startswith("pyobjc") for n in names)
     mac = common.requirements({"sys_platform": "darwin", "platform_system": "Darwin", "os_name": "posix",
                                "platform_machine": "arm64"})
     assert any(r.startswith("pyobjc-framework-Quartz") for r in mac) and not any(r.startswith("pycaw") for r in mac)
