@@ -137,6 +137,23 @@ def test_clearing_a_light_the_config_doesnt_have_turns_it_off(write):
     assert devs["base"].leds.count(("mode", 0, "off")) == 1
 
 
+def test_example_config_python_keys_reach_every_module(write):
+    from hubdeck.paths import EXAMPLE_CONFIG
+    eng, devs, _ = make(write, EXAMPLE_CONFIG.read_text(encoding="utf-8"), ALL)
+    leds = ("base", "knobs", "faders")
+
+    def tap(key, until):
+        idx = layout.index_of("keys", key, 0)
+        devs["keys"].press(idx); eng.step()
+        devs["keys"].release(idx); eng.step()
+        wait_for(lambda: eng.step() or until())
+
+    tap(7, lambda: all(devs[k].leds for k in leds) and eng.resolve_face(8).text == "1")
+    assert eng.deck.dial.face().text == "1" and devs["dial"].images
+    tap(8, lambda: all(devs[k].leds[-1][2] == "off" for k in leds))
+    assert eng.resolve_face(8).text == "0" and eng.deck.dial.face() is None
+
+
 def test_base_and_fader_lighting_open_their_modules(write):
     eng, devs, _ = make(write, CONFIG, ALL)
     assert "base" not in eng.manager.devices
