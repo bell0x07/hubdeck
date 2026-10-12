@@ -874,8 +874,8 @@ class Engine:
         if not replace and kd is not None:
             merged.update(kd.face.model_dump(exclude_unset=True))
             if kd.state:
-                value = self.state.get(kd.state)
-                overlay = kd.face_unknown if value is None else kd.face_on if value else None
+                on = self.state.get(kd.state)
+                overlay = kd.face_unknown if on is None else kd.face_on if on else None
                 if overlay is not None:
                     merged.update(overlay.model_dump(exclude_unset=True))
         if override is not None:

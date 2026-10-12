@@ -253,7 +253,9 @@ def test_knob_shows_its_value_on_the_dial_while_turned(write, recorder):
 device: {reassert_seconds: 0}
 dial:
   turn: rec.level
+  state: rec.on                                    # a state that is false doesn't change what {value} shows
   face: {icon: volume, label: "{value}%", gauge: true}
+  face_on: {icon: volume-off}
 knobs:
   2:
     turn: {target: rec.app, arg: spotify.exe}
@@ -262,6 +264,10 @@ knobs:
 """, ALL)
     rec(recorder).emit(value_state("level", None), 40)
     rec(recorder).emit(value_state("app", "spotify.exe"), 70)
+    rec(recorder).emit("on", False)
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.label, face.gauge) == ("volume", "40%", 40)
     devs["knobs"].push("turn", layout.index_of("knobs", 2, 0), 1)
     eng.step()
     assert rec(recorder).calls == [("adjust", "app", "spotify.exe", 2)]
