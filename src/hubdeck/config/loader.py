@@ -114,18 +114,7 @@ def check_references(cfg: Config) -> list[str]:
             if not has_target and (f.gauge or any(VALUE_RE.search(s or "") for s in (f.text, f.label))):
                 problems.append(f"{where}: 'gauge' and {{value}} need a turn target to show")
                 break
-        for a in kd.all_actions():
-            plugin = REGISTRY.get(a.plugin)
-            if plugin is None:
-                continue
-            if a.name not in plugin.actions:
-                problems.append(f"{where}: {a.plugin} has no action {a.name!r} "
-                                f"(available: {', '.join(plugin.actions) or 'none'})")
-                continue
-            if err := plugin.check_action(a.name, a.arg):
-                problems.append(f"{where}: {err}")
-            if a.plugin == "page" and a.name == "goto" and isinstance(a.arg, str) and a.arg not in cfg.pages:
-                problems.append(f"{where}: no page named {a.arg!r}")
+        problems += _check_actions(cfg, where, kd.all_actions())
         refs = []
         if kd.state:
             refs.append(kd.state)
@@ -138,6 +127,26 @@ def check_references(cfg: Config) -> list[str]:
                 problems.append(f"{where}: {err}")
         if (kd.face_on or kd.face_unknown) and not kd.state:
             problems.append(f"{where}: face_on/face_unknown need a 'state' to switch on")
+    problems += _check_actions(cfg, "auto_switch.on_focus", cfg.auto_switch.on_focus)
+    return problems
+
+
+def _check_actions(cfg: Config, where: str, actions) -> list[str]:
+    from ..plugins import REGISTRY
+
+    problems = []
+    for a in actions:
+        plugin = REGISTRY.get(a.plugin)
+        if plugin is None:
+            continue
+        if a.name not in plugin.actions:
+            problems.append(f"{where}: {a.plugin} has no action {a.name!r} "
+                            f"(available: {', '.join(plugin.actions) or 'none'})")
+            continue
+        if err := plugin.check_action(a.name, a.arg):
+            problems.append(f"{where}: {err}")
+        if a.plugin == "page" and a.name == "goto" and isinstance(a.arg, str) and a.arg not in cfg.pages:
+            problems.append(f"{where}: no page named {a.arg!r}")
     return problems
 
 

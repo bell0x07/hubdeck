@@ -17,9 +17,10 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
   - manager events → gestures (`gestures.py`), turns and faders (soft takeover)
   - plugin states → faces (`render/faces.py`, `render/images.py`)
   - lighting (`lighting.py`), hot reload
+  - switching pages by app: `_poll_focus` reads `focus_source.current` (a `focus.FocusWatcher`, started by `run()`; tests pass a fake), waits `FOCUS_SETTLE`, skips ignored windows and acts only when `Config.match_page` changes. `_saved_stack` holds the pages you opened yourself while an app's page is shown; `home` clears it. Engine-owned states (`page.auto/app/title`) go through `_set_state`.
   - `def_for(kind, index)` maps a module index to the current page's definition; `def_on(page, (kind, number))` does the same by config number for any page (used by `deck`).
 - **`platforms/`:** every OS-specific call. Nothing outside it branches on `sys.platform` (the editor only passes it to the browser).
-  - `base.py` is the interface: `Platform` (app folder, single instance, open/edit/run, message box, IPC, accent colour, label fonts, tray hooks), `AudioBackend`, `Keyboard`, `IpcConnection`. Unsupported features raise `Unsupported`.
+  - `base.py` is the interface: `Platform` (app folder, single instance, open/edit/run, message box, IPC, accent colour, label fonts, tray hooks), `AudioBackend`, `Keyboard`, `IpcConnection`, `FocusReader` (the focused window; None for the system's own surfaces). Unsupported features raise `Unsupported`. `run_with_event_loop` runs `hubdeck run` (macOS: engine on a thread, AppKit's loop on the main thread).
   - `current()` picks `windows/`, `macos/` or `posix.py` (shared by macOS and Linux, and the fallback for other OSes, without audio or keystrokes). Linux support goes into a `linux/` package subclassing `PosixPlatform`.
   - `keys.py` holds the canonical key names and aliases (`cmd` → `win`); each `Keyboard` maps them to its own codes.
   - OS libraries (pycaw, pyobjc) are imported inside methods only.
@@ -61,6 +62,7 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
   - Per-app volume uses AppleScript `sound volume` (Spotify, Music). It runs `osascript` (~0.2 s) on its own worker (`AppVolumes`), never on the audio thread. An Apple event blocks until the user answers macOS's Automation prompt, and that froze the Dial and mute before. **Don't use in-process NSAppleScript:** off the main thread it hung while compiling `tell application "Music"`.
   - `NSColor.controlAccentColor` is cached per process and never refreshes without an app event loop. `MacPlatform.accent_color` watches the setting through CFPreferences and resolves the colour in a fresh process when it changes.
   - Alerts from `osascript display alert` open behind other windows, so use notifications.
+  - `NSWorkspace.frontmostApplication` only refreshes while the main thread runs an event loop (Apple's docs; not yet verified on hardware), hence `run_with_event_loop`. Window titles come from the Accessibility API through ctypes (`macos/focus.py`), on the watcher's thread, so a hung app can't stall the controls.
   - The 2xRoller sent no input reports at all on macOS (raw hidapi, after replug); the cause is unknown.
 - **Never send firmware, serial, factory or recovery commands.** The denylist in `device/hid.py` enforces this; keep it up to date when adding commands.
 

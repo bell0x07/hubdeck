@@ -94,12 +94,12 @@ def test_example_config_is_valid():
 
 
 def test_example_config_commented_sections_are_valid(write):
-    """The commented-out dial/knobs/rollers/faders/lighting examples must work when uncommented."""
+    """The commented-out dial/knobs/rollers/faders/lighting/match examples must work when uncommented."""
     import re
     from hubdeck.paths import EXAMPLE_CONFIG
     out, uncomment = [], False
     for line in EXAMPLE_CONFIG.read_text(encoding="utf-8").splitlines():
-        if re.match(r"^# lighting:|^\s+# (dial|knobs|rollers|faders):", line):
+        if re.match(r"^# lighting:|^\s+# (dial|knobs|rollers|faders|match):", line):
             uncomment = True
         elif uncomment and not re.match(r"^\s*#( |$)", line):
             uncomment = False
@@ -112,6 +112,7 @@ def test_example_config_commented_sections_are_valid(write):
     assert "\n    dial:" in text and "\nlighting:" in text
     cfg = load_config(write("config.yaml", text))
     assert {"dial", "knobs", "rollers", "faders", "base"} <= cfg.used_modules()
+    assert cfg.pages["media"].match[0].app == "spotify.exe"
 
 
 def test_full_showcase_example_is_valid(monkeypatch):
@@ -122,6 +123,7 @@ def test_full_showcase_example_is_valid(monkeypatch):
     cfg = load_config(path, secrets=path.parent / "no-secrets.yaml")
     assert cfg.used_modules() == {"keys", "dial", "knobs", "rollers", "faders", "base"}
     assert set(cfg.pages) == {"main", "media", "fun"}
+    assert cfg.pages["media"].match and cfg.auto_switch.ignore
 
 
 def test_on_off_yes_no_stay_text(write):

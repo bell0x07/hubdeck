@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from functools import cache
 
-from .base import AudioBackend, IpcConnection, Keyboard, Platform, Unsupported
+from .base import AudioBackend, FocusedWindow, FocusReader, IpcConnection, Keyboard, Platform, Unsupported
 
 
 @cache
@@ -20,4 +20,4 @@ def current() -> Platform:
     return PosixPlatform()
 
 
-__all__ = ["AudioBackend", "IpcConnection", "Keyboard", "Platform", "Unsupported", "current"]
+__all__ = ["AudioBackend", "FocusedWindow", "FocusReader", "IpcConnection", "Keyboard", "Platform", "Unsupported", "current"]

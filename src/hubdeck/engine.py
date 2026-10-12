@@ -19,6 +19,7 @@ from .device import layout
 from .device.modules import Event
 from .gestures import GestureTracker
 from .lighting import LightingController
+from .platforms import FocusedWindow, Unsupported, current
 from .plugins import REGISTRY, Plugin, PluginContext
 from .plugins.base import value_state
 from .render.images import ImageStore, LoadedImage
@@ -33,6 +34,8 @@ PRESSABLE = {"keys": 15, "dial": 1, "knobs": 3}   # modules whose controls have 
 SCREENS = ("keys", "dial")
 TAKEOVER_WINDOW = 4                               # faders pick up the value within +/- this
 FADER_ECHO_SECONDS = 1.0                          # a target value this recent from the fader is its own echo
+FOCUS_SETTLE = 0.3                                # a window must keep focus this long to switch pages
+RECENT_WINDOWS = 20                               # focused windows remembered for the editor's picker
 REPLACE = "replace"                               # in a runtime face: it replaces the config's faces
 Control = tuple[str, int]                         # (module, config number), e.g. ("knobs", 2); dial, base: 1
 Source = tuple[str, str, int]                     # (page, module, number) an action comes from
@@ -64,7 +67,7 @@ class Engine:
     def __init__(self, source: ConfigSource | None = None, config: Config | None = None,
                  device_factory: Callable[[], Any] | None = None,
                  factories: dict[str, Callable[[], Any]] | None = None,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic, focus: Any = None):
         self.source = source
         self.cfg: Config | None = config
         self.clock = clock
@@ -77,6 +80,16 @@ class Engine:
         self._state_q: queue.Queue[tuple[str, str, Any]] = queue.Queue()
         self._commands: queue.Queue[tuple[Callable, tuple]] = queue.Queue()
         self.page_stack: list[str] = []
+        # switching pages by app; `focus` has .current, the focused window (FocusWatcher, set by run)
+        self.focus_source = focus
+        self.focus: FocusedWindow | None = None      # the focused window (ignored ones left out)
+        self.focus_page: str | None = None           # the page it matches
+        self.recent_windows: list[FocusedWindow] = []   # newest first
+        self._focus_seen: tuple[FocusedWindow | None, float] | None = None   # reading, since when
+        self._focus_handled: FocusedWindow | None = None
+        self._auto: bool | None = None               # auto_switch set at runtime; None: the config's
+        self._saved_stack: list[str] | None = None   # your stack, while one auto-switching set is shown
+        self._title_warned = False
         self.gestures = {kind: GestureTracker(n) for kind, n in PRESSABLE.items()}
         # press cycle -> (page, def) it started on
         self._active: dict[tuple[str, int], tuple[str, KeyDef | None]] = {}
@@ -104,7 +117,7 @@ class Engine:
         self._home_at: float | None = None   # when the page's home_after takes it back to start_page
         self._reassert_at = 0.0
         self._stop = threading.Event()
-        self.listeners: list[Callable[[str, str], None]] = []  # (event, detail): page / error / reloaded / device / quit
+        self.listeners: list[Callable[[str, str], None]] = []  # (event, detail): page / auto / error / reloaded / device / quit
         self.deck = Deck(self)
 
     # -- public API (thread-safe) -----------------------------------------
@@ -133,6 +146,18 @@ class Engine:
 
     def home(self):
         self.call(self._home)
+
+    @property
+    def auto_switch(self) -> bool:
+        """Whether pages switch by the focused app."""
+        if self._auto is not None:
+            return self._auto
+        return self.cfg.auto_switch.enabled if self.cfg else False
+
+    def set_auto_switch(self, on: bool | None):
+        """Switch pages by app or not (None: toggle), until restart or until the config's
+        auto_switch.enabled changes."""
+        self.call(self._set_auto, on)
 
     def reload(self):
         self.call(self._try_reload)
@@ -235,6 +260,8 @@ class Engine:
         from .control import ControlServer
         if self.cfg is not None and not self.page_stack:
             self._apply(self.cfg)
+        if self.focus_source is None:
+            self._watch_focus()
         control = ControlServer(self)
         try:
             control.start()
@@ -249,9 +276,22 @@ class Engine:
             self.shutdown()
 
     def shutdown(self):
+        if hasattr(self.focus_source, "stop"):
+            self.focus_source.stop()
         for name in list(self.plugins):
             self._stop_plugin(name)
         self.manager.close_all()
+
+    def _watch_focus(self):
+        from .focus import FocusWatcher
+        try:
+            reader = current().focus()
+        except Unsupported as e:
+            if self.cfg and (self.cfg.window_matches() or self.cfg.auto_switch.on_focus):
+                log.warning("%s: pages' match and auto_switch do nothing", e)
+            return
+        self.focus_source = FocusWatcher(reader)
+        self.focus_source.start()
 
     # -- loop --------------------------------------------------------------
     def step(self):
@@ -274,6 +314,8 @@ class Engine:
             for i, ev in tracker.tick(now):
                 self._fire(kind, i, ev)
         self._drain_states()
+        if self.focus_source is not None:
+            self._poll_focus(now)
         if (accent := accent_color()) != self._accent:
             self._accent = accent
             self._dirty = True
@@ -349,9 +391,6 @@ class Engine:
         self.lighting.forget()
         self.images.forget()
         self._jpeg_cache.clear()
-        for name, page in cfg.pages.items():
-            if page.match:
-                log.warning("pages.%s.match: app-based page switching is not implemented yet; ignored", name)
         self.overrides = {p: keys for p, keys in self.overrides.items() if p in cfg.pages}
         self._update_owned(old.modules.keys.rotate if old is not None else None)
         # modules: open what the config uses, release the rest (MasterHUB may have them)
@@ -360,6 +399,16 @@ class Engine:
             if kind not in self.manager.wanted:
                 self.manager.drop(kind)
         stack = [p for p in self.page_stack if p in cfg.pages] or [cfg.start_page]
+        if self._saved_stack is not None:
+            saved = [p for p in self._saved_stack if p in cfg.pages] or [cfg.start_page]
+            if self.page_stack[0] not in cfg.pages:      # the app's page is gone: back to yours
+                stack, saved = saved, None
+            self._saved_stack = saved
+        if old is not None and old.auto_switch.enabled != cfg.auto_switch.enabled:
+            self._auto = None             # the config's new setting wins over page.auto_on/off
+        self._set_state("page.auto", self.auto_switch)
+        # matches may have changed; the page only follows them from the next focus change
+        self.focus_page = cfg.match_page(self.focus) if self.focus else None
         if old is None or (old.modules.keys.brightness, old.modules.dial.brightness) != \
                 (cfg.modules.keys.brightness, cfg.modules.dial.brightness):
             self.brightness.clear()       # the config's new levels win over deck.set_brightness
@@ -462,6 +511,7 @@ class Engine:
             self._set_pages(self.page_stack[:-1])
 
     def _home(self):
+        self._saved_stack = None          # a stack you set
         self._set_pages([self.cfg.start_page])
 
     def def_for(self, kind: str, index: int):
@@ -494,6 +544,62 @@ class Engine:
         if changed:
             log.info("page: %s", self.current_page)
             self._notify("page", self.current_page)
+
+    # -- switching pages by app ---------------------------------------------
+    def _poll_focus(self, now: float):
+        window = self.focus_source.current
+        if self._focus_seen is None or self._focus_seen[0] != window:
+            self._focus_seen = (window, now)            # settling: Alt+Tab passes many windows
+        elif window is not None and window != self._focus_handled and now - self._focus_seen[1] >= FOCUS_SETTLE:
+            self._focus_changed(window)
+
+    def _focus_changed(self, window: FocusedWindow):
+        self._focus_handled = window
+        self.recent_windows = [window] + [w for w in self.recent_windows if w != window][:RECENT_WINDOWS - 1]
+        if window == self.focus or self.cfg.auto_switch.ignores(window):
+            return                                     # as if focus never moved
+        new_app = self.focus is None or window.app != self.focus.app
+        self.focus = window
+        self._set_state("page.app", window.app)
+        self._set_state("page.title", window.title)
+        if window.title is None and not self._title_warned and any(
+                m.title is not None for m in self.cfg.window_matches()):
+            self._title_warned = True
+            log.warning("window titles can't be read, so match and ignore entries with a 'title' don't "
+                        "apply (macOS: hubdeck needs the Accessibility permission)")
+        page = self.cfg.match_page(window)
+        matched = f"matches page {page}" if page else "no page"
+        if new_app or page != self.focus_page:
+            log.info("focus: %s, %s", window.app, matched)    # titles can be private: debug only
+        log.debug("focus: %s %r, %s", window.app, window.title, matched)
+        if page != self.focus_page:
+            self.focus_page = page
+            self._follow_focus()
+        for action in self.cfg.auto_switch.on_focus:
+            self._invoke(action)
+
+    def _follow_focus(self):
+        """Show the page the focus matches, or with none, put back the stack you set; not while
+        switching is off or a sticky page is on screen."""
+        if not self.auto_switch or self.cfg.pages[self.current_page].sticky:
+            return
+        if self.focus_page is not None:
+            if self._saved_stack is None:
+                self._saved_stack = self.page_stack
+            self._set_pages([self.focus_page])
+        elif self._saved_stack is not None:
+            stack, self._saved_stack = self._saved_stack, None
+            self._set_pages(stack)
+
+    def _set_auto(self, on: bool | None):
+        was = self.auto_switch
+        self._auto = not was if on is None else on
+        self._set_state("page.auto", self._auto)
+        if self._auto != was:
+            log.info("switching pages by app: %s", "on" if self._auto else "off")
+            self._notify("auto", "on" if self._auto else "off")
+            if self._auto:
+                self._follow_focus()
 
     # -- input -------------------------------------------------------------
     def _on_event(self, kind: str, e: Event, now: float):
@@ -632,6 +738,8 @@ class Engine:
                 self._back()
             elif action.name == "home":
                 self._home()
+            elif action.name in ("auto_on", "auto_off", "auto_toggle"):
+                self._set_auto({"auto_on": True, "auto_off": False}.get(action.name))
             return
         plugin = self.plugins.get(action.plugin)
         if plugin is None and start:
@@ -650,6 +758,12 @@ class Engine:
             self.firing = None
 
     # -- state -------------------------------------------------------------
+    def _set_state(self, name: str, value: Any):
+        """A state the engine keeps itself (page.*)."""
+        if self.state.get(name, ...) != value:
+            self.state[name] = value
+            self._dirty = True
+
     def _drain_states(self):
         while True:
             try:

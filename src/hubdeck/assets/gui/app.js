@@ -53,6 +53,9 @@ const ACTIONS = [
     { label: "Go to page", arg: { kind: "page" }, make: v => ({ page: v || "" }), is: a => a.name === "page.goto", get: a => a.arg },
     { label: "Go back", make: () => "page.back", is: a => a.name === "page.back" },
     { label: "Go to start page", make: () => "page.home", is: a => a.name === "page.home" },
+    { label: "Switch pages by app: on / off", make: () => "page.auto_toggle", is: a => a.name === "page.auto_toggle" },
+    { label: "Switch pages by app: on", make: () => "page.auto_on", is: a => a.name === "page.auto_on" },
+    { label: "Switch pages by app: off", make: () => "page.auto_off", is: a => a.name === "page.auto_off" },
   ] },
 ];
 const ALL_ACTIONS = ACTIONS.flatMap(g => g.items);
@@ -60,7 +63,7 @@ const ALL_ACTIONS = ACTIONS.flatMap(g => g.items);
 const STATES = {
   "discord.muted": "Discord is muted", "discord.deafened": "Discord is deafened", "discord.holding": "hold-to-mute is held",
   "discord.connected": "Discord is connected", "audio.mic_muted": "the microphone is muted",
-  "audio.speaker_muted": "the speakers are muted",
+  "audio.speaker_muted": "the speakers are muted", "page.auto": "pages switch by app",
 };
 const VALUES = { "audio.volume": "System volume", "audio.mic_volume": "Microphone volume", "audio.app_volume": "Volume of one app" };
 
@@ -139,11 +142,18 @@ function sectionOf(section, p = page) {
 // Device drawing
 // ---------------------------------------------------------------------------------------
 function render() {
-  $("#pages").replaceChildren(...Object.keys(S.pages).map(p => h("button", {
-    class: p === page ? "active" : "", onclick: () => { page = p; closeEditor(); render(); },
-    title: p === S.start_page ? "Start page" : "",
-  }, p === S.start_page ? "★ " : "", p, S.current_page === p ? h("span", { class: "live", title: "on the device right now" }) : null)));
+  $("#pages").replaceChildren(...Object.keys(S.pages).map(p => {
+    const flags = S.page_flags[p] || {};
+    return h("button", {
+      class: p === page ? "active" : "", onclick: () => { page = p; closeEditor(); render(); },
+      title: p === S.start_page ? "Start page" : "",
+    }, p === S.start_page ? "★ " : "", p,
+    flags.match?.length ? h("span", { class: "flag", title: "shown when " + flags.match.map(windowText).join(", ") + " has focus" }, "⇄") : null,
+    flags.sticky ? h("span", { class: "flag", title: "sticky: stays while it's shown, whatever has focus" }, "📌") : null,
+    S.current_page === p ? h("span", { class: "live", title: "on the device right now" }) : null);
+  }));
   $("#page-title").textContent = page;
+  drawFocus();
   $("#page-start").classList.toggle("hidden", page === S.start_page);
   $("#page-delete").classList.toggle("hidden", page === S.start_page);
   drawBase();
@@ -376,14 +386,14 @@ function actionSelect(selected, onPick) {
 }
 
 // edits one gesture field (action / on_long_press / turn.cw …) as a list of friendly actions
-function actionEditor(field, target = () => cur.raw) {
+function actionEditor(field, target = () => cur.raw, onChange = changed) {
   const box = h("div", { class: "actions" });
   const raw = () => asList(target()[field]);
   const write = list => {
     const obj = target();
     delete obj[field];
     if (list.length) obj[field] = list.length === 1 ? list[0] : list;
-    changed();
+    onChange();
   };
   const draw = () => {
     const list = raw();
@@ -669,6 +679,10 @@ function openDialog(title, tabs, onSave) {
 }
 function dlgError(msg) { const el = $("#dlg-error"); el.textContent = msg; el.classList.toggle("hidden", !msg); }
 $("#dlg-save").onclick = async e => { e.preventDefault(); try { if (await dlgSave()) dlg.close(); } catch (err) { dlgError(err.message); } };
+// Enter in a text field saves: the form's first button is ✕, which Enter would press, closing it unsaved
+dlg.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.matches("input[type=text]")) { e.preventDefault(); $("#dlg-save").click(); }
+});
 const showBody = yaml => { $("#dlg-body").classList.toggle("hidden", yaml); $("#dlg-yaml").classList.toggle("hidden", !yaml); };
 async function saveGlobalRaw(name, raw) {
   const r = await api("/api/global", { name, raw });
@@ -716,6 +730,99 @@ $("#btn-settings").onclick = async () => {
       if (!Object.keys(m[k]).length) delete m[k];
     }
     if (!(await saveGlobalRaw("device", d)) || !(await saveGlobalRaw("modules", m))) return false;
+    setStatus("saved ✓", "ok"); await load(); return true;
+  });
+};
+
+// ---------------------------------------------------------------------------------------
+// Switching pages by app: a page's windows (match, sticky) and auto_switch
+// ---------------------------------------------------------------------------------------
+const reEscape = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const windowText = w => typeof w === "string" ? w : [w.app, w.title && `“${w.title}”`].filter(Boolean).join(" ");
+
+function drawFocus() {
+  const el = $("#focus-now"), f = S.focus;
+  el.classList.toggle("hidden", !S.live || !f);
+  if (!S.live || !f) return;
+  el.textContent = `Focused now: ${f.app}${f.title ? " · " + f.title : ""} → ` +
+    (f.page ? `page “${f.page}”` : "no page") + (S.auto_switch ? "" : " (switching by app is off)");
+}
+
+function focusNote() {
+  if (!META.follows_focus) return h("p", { class: "note" }, "This computer can't tell hubdeck which app has focus: these settings only work on Windows and macOS.");
+  return S.live ? null : h("p", { class: "muted" }, "Open the editor from the tray icon to see the focused window and pick from recent ones.");
+}
+
+function recentPicker(onPick) {
+  const recent = S.recent_windows || [];
+  if (!S.live) return null;
+  return h("select", { onchange: e => {
+    const w = recent[Number(e.target.value)];
+    e.target.value = "";
+    if (w) onPick({ app: w.app, title: w.title ? reEscape(w.title) : undefined });
+  } }, h("option", { value: "" }, recent.length ? "pick a recent window…" : "no windows seen yet"),
+    ...recent.map((w, i) => h("option", { value: i }, w.app + (w.title ? " — " + w.title : ""))));
+}
+
+// a list of windows (match, ignore): rows of app + title regex; writes "app", {title} or {app, title}
+function windowList(list, onChange) {
+  const box = h("div", { class: "windows" });
+  const rows = asList(list).map(w => typeof w === "string" ? { app: w } : { ...w });
+  const emit = () => onChange(rows.filter(r => r.app || r.title).map(r =>
+    r.title ? (r.app ? { app: r.app, title: r.title } : { title: r.title }) : r.app));
+  const draw = () => box.replaceChildren(
+    ...rows.map((r, i) => h("div", { class: "act" },
+      h("input", { type: "text", value: r.app ?? "", placeholder: IS_MAC() ? "app, e.g. Safari" : "program, e.g. X2.exe",
+        oninput: e => { r.app = e.target.value || undefined; emit(); } }),
+      h("input", { type: "text", value: r.title ?? "", placeholder: "and a title containing… (optional)",
+        oninput: e => { r.title = e.target.value || undefined; emit(); } }),
+      h("button", { class: "small ghost", type: "button", title: "Remove", onclick: () => { rows.splice(i, 1); emit(); draw(); } }, "✕"))),
+    h("div", { class: "act" },
+      h("button", { class: "small link", type: "button", onclick: () => { rows.push({}); draw(); } }, "+ add a window"),
+      recentPicker(w => { rows.push(w); emit(); draw(); })));
+  draw();
+  return box;
+}
+
+$("#page-switch").onclick = async () => {
+  const P = (await api("/api/page-settings?" + new URLSearchParams({ page }))).raw || {};
+  let match = asList(P.match), sticky = !!P.sticky;
+  $("#dlg-body").replaceChildren(h("div", {}, focusNote(),
+    section("Show this page when one of these has focus",
+      h("p", { class: "muted" }, "The app's program name (any case, .exe optional) and/or text in its window title " +
+        "(a regular expression). When several pages fit, app + title wins over title, which wins over app alone."),
+      windowList(match, l => { match = l; })),
+    section("Sticky",
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: sticky, onchange: e => { sticky = e.target.checked; } }),
+        "stay on this page while it's shown, whatever has focus"))));
+  openDialog(`Page “${page}”: switch by app`, [{ name: "Settings", show: () => showBody(false) }], async () => {
+    const r = await api("/api/page-settings", { page, raw: { match: match.length ? match : undefined, sticky: sticky || undefined } });
+    if (!r.ok) { dlgError("Not saved:\n\n" + r.error); return false; }
+    setStatus("saved ✓", "ok"); await load(); return true;
+  });
+};
+
+$("#btn-auto").onclick = async () => {
+  const res = await api("/api/global?name=auto_switch");
+  const A = res.raw || {};
+  $("#dlg-yaml").value = res.yaml || "";
+  $("#dlg-body").replaceChildren(h("div", {}, focusNote(),
+    section("Switching pages by app",
+      h("label", { class: "check" }, h("input", { type: "checkbox", checked: A.enabled !== false,
+        onchange: e => { if (e.target.checked) delete A.enabled; else A.enabled = false; } }), "on when hubdeck starts"),
+      h("p", { class: "muted" }, "A page's “Switch by app…” says which windows show it. An app with no page puts back the page you " +
+        "picked yourself. A key can turn switching off and on until hubdeck restarts.")),
+    section("Ignore these windows",
+      h("p", { class: "muted" }, "They count as if focus never moved, like the taskbar or Alt+Tab."),
+      windowList(A.ignore, l => { if (l.length) A.ignore = l; else delete A.ignore; })),
+    section("Whenever the focused window changes", actionEditor("on_focus", () => A, () => {}))));
+  let yamlTab = false;
+  openDialog("Switching pages by app", [
+    { name: "Simple", show: () => { yamlTab = false; showBody(false); } },
+    { name: "Advanced (YAML)", show: () => { yamlTab = true; showBody(true); } },
+  ], async () => {
+    const r = await api("/api/global", yamlTab ? { name: "auto_switch", yaml: $("#dlg-yaml").value } : { name: "auto_switch", raw: A });
+    if (!r.ok) { dlgError("Not saved:\n\n" + r.error); return false; }
     setStatus("saved ✓", "ok"); await load(); return true;
   });
 };
@@ -796,6 +903,7 @@ setInterval(async () => {   // keep live faces and the current page fresh while 
     const fresh = await api("/api/state");
     const pageChanged = fresh.current_page !== S.current_page;
     S = fresh; stamp = Date.now();
+    drawFocus();
     if (pageChanged) render();
     else document.querySelectorAll("#base img.face").forEach(img => { img.src = img.src.replace(/v=\d+/, "v=" + stamp); });
   } catch { /* hubdeck stopped */ }
