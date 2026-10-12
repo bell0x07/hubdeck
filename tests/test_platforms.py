@@ -390,6 +390,47 @@ def test_audio_set_output_and_set_input_switch_the_default_devices(monkeypatch):
     assert audio.AudioPlugin.check_action("set_input", None) == "audio.set_input needs (part of) a device name"
 
 
+def test_audio_app_volume_follows_the_focused_app(monkeypatch):
+    from types import SimpleNamespace
+    from hubdeck.platforms import AudioBackend
+    from hubdeck.plugins import audio
+    from hubdeck.plugins.base import PluginContext, value_state
+
+    class Backend(AudioBackend):
+        def __init__(self):
+            self.levels = {"Discord.exe": 50.0, "game.exe": 80.0}
+
+        def get_volume(self, kind): return 50.0
+        def set_volume(self, kind, level): pass
+        def get_mute(self, kind): return False
+        def set_mute(self, kind, mute): pass
+        def default_name(self, kind): return "Speakers"
+        def devices(self, kind): return ["Speakers"]
+        def set_default(self, kind, want): return None
+        def get_app_volume(self, app): return self.levels.get(app)
+        def set_app_volume(self, app, level): self.levels[app] = level
+
+    monkeypatch.setattr(audio, "current", lambda: type("P", (), {"audio": lambda self: Backend()})())
+    states, deck = {}, SimpleNamespace(focused=None)
+    plugin = audio.AudioPlugin(PluginContext("audio", lambda p, k, v: states.__setitem__(k, v), deck), {})
+    plugin.setup()
+    plugin.watch({("app_volume", "focused")})
+    key = value_state("app_volume", "focused")
+    plugin.tick()
+    assert states[key] is None                                     # no window seen yet
+    plugin.adjust_value("app_volume", "focused", 5, 0)             # nothing to change
+
+    deck.focused = SimpleNamespace(app="Discord.exe", title="general")
+    plugin.adjust_value("app_volume", "focused", 5, 0)
+    assert plugin.backend.levels["Discord.exe"] == 55 and states[key] == 55
+    deck.focused = SimpleNamespace(app="game.exe", title="")
+    plugin.tick()
+    assert states[key] == 80                                       # follows focus
+    plugin.adjust_value("app_volume", "focused", -10, 0)
+    assert plugin.backend.levels == {"Discord.exe": 55, "game.exe": 70}
+    assert audio.AudioPlugin.check_value("app_volume", "focused") is None
+
+
 def _media_plugin(monkeypatch, reader):
     from hubdeck.plugins import media
     from hubdeck.plugins.base import PluginContext

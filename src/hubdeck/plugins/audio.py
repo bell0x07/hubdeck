@@ -6,6 +6,7 @@ from __future__ import annotations
 from ..platforms import current
 from .base import ThreadedPlugin, adjusted, value_state
 
+FOCUSED = "focused"     # app_volume arg: whichever app has focus
 KINDS = {"speakers": "speakers", "speaker": "speakers", "output": "speakers",
          "microphone": "microphone", "mic": "microphone", "input": "microphone"}
 
@@ -41,14 +42,14 @@ class AudioPlugin(ThreadedPlugin):
     values = {
         "volume": "default playback volume 0-100",
         "mic_volume": "default recording (microphone) volume 0-100",
-        "app_volume": "volume of one app 0-100; arg: process name, e.g. spotify.exe "
-                      "(macOS: apps with an AppleScript volume, e.g. Spotify, Music)",
+        "app_volume": "volume of one app 0-100; arg: process name, e.g. spotify.exe, or focused: "
+                      "the focused window's app (macOS: apps with an AppleScript volume, e.g. Spotify, Music)",
     }
 
     @classmethod
     def check_value(cls, name, arg):
         if name == "app_volume" and not (isinstance(arg, str) and arg.strip()):
-            return "audio.app_volume needs arg: the app's process name, e.g. spotify.exe"
+            return "audio.app_volume needs arg: the app's process name, e.g. spotify.exe, or focused"
         if name in ("volume", "mic_volume") and arg is not None:
             return f"audio.{name} takes no arg"
         return None
@@ -97,25 +98,36 @@ class AudioPlugin(ThreadedPlugin):
         self.tick()
 
     # -- values ------------------------------------------------------------
+    def _app(self, arg) -> str | None:
+        """The app an app_volume arg names. `focused` is the focused window's app, the last one
+        that wasn't the taskbar, desktop or hubdeck itself (None until hubdeck has seen one)."""
+        if str(arg).strip().lower() != FOCUSED:
+            return arg
+        focused = self.ctx.deck.focused if self.ctx.deck else None
+        return focused.app if focused else None
+
     def _get(self, name, arg) -> float | None:
         if name == "app_volume":
-            return self.backend.get_app_volume(arg)
+            app = self._app(arg)
+            return None if app is None else self.backend.get_app_volume(app)
         return self.backend.get_volume("microphone" if name == "mic_volume" else "speakers")
 
     def _set(self, name, arg, level: float):
         if name == "app_volume":
-            self.backend.set_app_volume(arg, level)
+            if (app := self._app(arg)) is not None:
+                self.backend.set_app_volume(app, level)
         else:
             self.backend.set_volume("microphone" if name == "mic_volume" else "speakers", level)
 
     def adjust_value(self, name, arg, delta, expo):
         current = self._get(name, arg)
+        which = (name, self._app(arg) if name == "app_volume" else arg)   # focused: the app it is now
         if current is None:
-            if (name, arg) not in self._unavailable:      # once, not on every click
-                self.log.info("%s %s: not available (app not playing audio?)", name, arg or "")
-                self._unavailable.add((name, arg))
+            if which not in self._unavailable:            # once, not on every click
+                self.log.info("%s %s: not available (app not playing audio?)", name, which[1] or "")
+                self._unavailable.add(which)
             return
-        self._unavailable.discard((name, arg))
+        self._unavailable.discard(which)
         self._set(name, arg, adjusted(current, delta, expo))
         self._publish_value(name, arg)
 

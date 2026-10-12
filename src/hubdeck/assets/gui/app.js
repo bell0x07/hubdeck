@@ -556,10 +556,12 @@ function appPicker(path) {
   const v = getPath(cur.raw, path) ?? "";
   const same = (a, b) => a.toLowerCase().replace(/\.exe$/, "") === b.toLowerCase().replace(/\.exe$/, "");
   const apps = [...(AUDIO.apps || []).filter(a => !v || !same(a, v)), ...(v ? [v] : [])]
+    .filter(a => a.toLowerCase() !== "focused")
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   const sel = h("select", { onchange: e => {
     if (e.target.value === "__other") { other.classList.remove("hidden"); other.focus(); return; }
     other.classList.add("hidden"); setPath(cur.raw, path, e.target.value); changed(); } },
+    h("option", { value: "focused", selected: v.toLowerCase() === "focused" }, "the focused app"),
     ...apps.map(a => h("option", { value: a, selected: a === v }, a.replace(/\.exe$/i, ""))),
     h("option", { value: "__other" }, "another app…"));
   const other = h("input", { type: "text", class: "hidden", placeholder: IS_MAC() ? "app name, e.g. Music" : "program name, e.g. chrome.exe",
