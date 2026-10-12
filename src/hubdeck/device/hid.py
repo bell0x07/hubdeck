@@ -20,6 +20,15 @@ except ImportError:  # allow importing for tests without hidapi
 
 VID = 0x2516
 
+# the engine lists modules while it retries missing ones, and the editor's thread does too;
+# hidapi's enumerate keeps shared state (one IOHIDManager on macOS), so take turns
+_enumerating = threading.Lock()
+
+
+def _enumerate(*args) -> list[dict]:
+    with _enumerating:
+        return hid.enumerate(*args)
+
 
 @dataclass(frozen=True)
 class ModuleType:
@@ -153,7 +162,7 @@ def enumerate_modules() -> list[tuple[ModuleType, dict]]:
     if hid is None:
         return []
     seen, out = set(), []
-    for info in hid.enumerate(VID):
+    for info in _enumerate(VID):
         mtype = MODULE_TYPES.get(info["product_id"])
         key = (info["product_id"], info.get("serial_number"))
         if mtype and key not in seen:
@@ -169,7 +178,7 @@ class HidModule:
         if hid is None:
             raise DeviceError("hidapi is not installed: pip install hidapi")
         self.type = mtype
-        infos = [i for i in hid.enumerate(VID, mtype.pid)
+        infos = [i for i in _enumerate(VID, mtype.pid)
                  if serial is None or i.get("serial_number") == serial]
         paths = [path] if path else [i["path"] for i in infos]
         if not paths:
