@@ -499,3 +499,39 @@ def test_windows_media_reads_the_current_session():
     t.join(10)
     now, = result                                             # whatever plays while the tests run
     assert now is None or (now.app and isinstance(now.playing, bool))
+
+
+def test_windows_app_volume_includes_processes_the_app_started():
+    """New Teams plays through a msedgewebview2.exe it starts. Windows' own processes
+    (Explorer) don't count as apps, and each process is looked up once."""
+    wa = pytest.importorskip("hubdeck.platforms.windows.audio")
+    from types import SimpleNamespace
+    lookups = []
+
+    def proc(pid, name, folder, *parents):
+        def walk():
+            lookups.append(name)
+            return list(parents)                              # nearest first, like psutil
+        return SimpleNamespace(pid=pid, create_time=lambda: 1.0, name=lambda: name,
+                               exe=lambda: os.path.join(folder, name), parents=walk)
+
+    class Session:
+        def __init__(self, process, level):
+            self.Process, self.level = process, level
+            self.SimpleAudioVolume = SimpleNamespace(GetMasterVolume=lambda: self.level,
+                                                     SetMasterVolume=lambda v, _ctx: setattr(self, "level", v))
+
+    programs, explorer = r"C:\Program Files", proc(1, "explorer.exe", wa.WINDOWS_DIR)
+    teams = proc(2, "ms-teams.exe", programs, explorer)
+    webview, spotify = Session(proc(3, "msedgewebview2.exe", programs, teams, explorer), 0.5), \
+        Session(proc(4, "Spotify.exe", programs, explorer), 0.9)
+    audio = wa.WinAudio.__new__(wa.WinAudio)                  # no COM
+    audio.au, audio._owners = SimpleNamespace(GetAllSessions=lambda: [webview, spotify, Session(None, 1)]), {}
+
+    assert audio.get_app_volume("ms-teams.exe") == 50
+    assert audio.get_app_volume("msedgewebview2") == 50       # still by its own name
+    assert audio.get_app_volume("explorer.exe") is None
+    audio.set_app_volume("MS-Teams", 30)
+    assert (webview.level, spotify.level) == (0.3, 0.9)
+    assert audio.apps() == ["ms-teams.exe", "msedgewebview2.exe", "Spotify.exe"]
+    assert sorted(lookups) == ["Spotify.exe", "msedgewebview2.exe"]
