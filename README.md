@@ -367,16 +367,19 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 
 ### Python actions
 
-`{python: code}` runs Python code inside the hubdeck process, with the same rights as hubdeck itself. A YAML block keeps longer code readable:
+`{python: code}` runs Python code inside the hubdeck process, with the same rights as hubdeck itself. A YAML block keeps longer code readable. Here key 7 counts presses and shows the count on key 8, and pressing key 8 resets it:
 
 ```yaml
-5:
+7:
   action:
     python: |
       count = globals().get("count", 0) + 1
-      deck.set_face(deck.key, text=str(count), bg="#c81e28" if count % 2 else None)
+      deck.set_face(8, text=str(count), bg="#c81e28" if count % 2 else None)
       log.info("pressed %d times", count)
-  face: {text: "0", label: Count}
+  face: {icon: plus, label: Count}
+8:
+  action: {python: "count = 0; deck.clear_face(8)"}
+  face: {text: "0", label: Total}
 ```
 
 - Syntax errors are reported when the config loads, like any other config error.
@@ -386,15 +389,40 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 
 #### Controlling hubdeck from Python
 
-The code also gets `deck`:
+The code also gets `deck`, which reaches every module, numbered like in the config:
+
+| control | what it has |
+| --- | --- |
+| `deck.keys[1]` … `deck.keys[15]` | `set_face`, `clear_face`, `face`, `press`, `held` |
+| `deck.dial` | `set_face`, `clear_face`, `face`, `press`, `held`, `turn`, `value` |
+| `deck.knobs[1]` … `deck.knobs[3]` | `press`, `held`, `turn`, `value`, `set_light`, `clear_light` |
+| `deck.rollers[1]`, `deck.rollers[2]` | `turn`, `value` |
+| `deck.faders[1]` … `deck.faders[5]` | `position`, `value`, `move_to`, `set_light`, `clear_light` |
+| `deck.base` | `set_light`, `clear_light` |
+
+| method | what it does |
+| --- | --- |
+| `set_face(page=None, **fields)` | change the face, with the config's face fields: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `gauge`, `image`, `image_fit` |
+| `clear_face(page=None)` | go back to the config's face |
+| `face(page=None)` | what it shows, with live text filled in: `.icon`, `.label`, `.text`, `.bg` (as `(r, g, b)`) and the other face fields. `None` if hubdeck doesn't draw it |
+| `press(page=None, gesture="press")` | run the actions the config gives it, as if it was pressed. `gesture` can also be `down`, `up`, `long_press` or `double_press` |
+| `held` | whether it's held down right now |
+| `turn(steps=1, page=None)` | act as if it was turned `steps` clicks (positive = clockwise; rollers: up or right). This adjusts its `turn` target, or runs its `cw`/`ccw` actions once per click |
+| `value(page=None)` | the current value (0–100) of what it controls, or `None` while unknown |
+| `position` | where a fader sits (0–100), or `None` until it has reported |
+| `move_to(value, page=None)` | set what a fader controls to `value`, as if moved there. The fader then has to reach that value before it takes over again |
+| `set_light(**fields)` | change its LED, with the fields of a `lighting:` zone: `color`, `mode`, `brightness`, `min_brightness`, `animate`, `state`, `on`, `unknown` |
+| `clear_light()` | go back to the config's lighting, or turn the LED off if the config doesn't light it |
+
+On `deck` itself:
 
 | call | what it does |
 | --- | --- |
-| `deck.key` | the number of the key whose press started this code (`None` for other controls, and in threads you start yourself) |
+| `deck.control`, `deck.key` | the control whose press or turn started this code, e.g. `deck.knobs[2]`, and its number when it's a key. Both are `None` in threads you start yourself |
+| `deck.set_face(key, …)`, `deck.clear_face(key)`, `deck.face(key)`, `deck.press(key)`, `deck.is_held(key)` | shortcuts for the same methods on `deck.keys[key]` |
+| `deck.clear_faces(page=None)` | go back to the config's faces for every key and the Dial on a page |
 | `deck.page`, `deck.pages` | the page on screen, and the names of all pages |
 | `deck.goto(page)`, `deck.back()`, `deck.home()` | switch pages, like the `page` actions |
-| `deck.set_face(key, page=None, **fields)` | change a key's face, with the same fields as in the config: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `image`, `image_fit` |
-| `deck.clear_face(key, page=None)`, `deck.clear_faces(page=None)` | go back to the config's face for one key, or for every key on a page |
 | `deck.run(action, arg=None)` | run any action, written as in the config: `deck.run("discord.toggle_mute")`, `deck.run("keys", "ctrl+c")`, `deck.run({"audio.set_volume": 30})` or a list |
 | `deck.state(name, default=None)`, `deck.states` | read state values, e.g. `deck.state("audio.volume")` |
 | `deck.set_var(name, value)` | set `vars.<name>`, like `{vars.set: ...}` or `hubdeck send set`: faces show it as `{vars.name}`, and `state: vars.name` switches on it |
@@ -402,22 +430,24 @@ The code also gets `deck`:
 | `deck.reload()` | reload the config |
 
 ```yaml
-8:
+9:
   action:
     python: |
       from PIL import Image, ImageDraw
-      img = Image.new("RGB", (72, 72), "black")
-      ImageDraw.Draw(img).ellipse((8, 8, 64, 64), fill="orange")
-      deck.set_face(deck.key, image=img, label="Sun")
-      deck.run("keys", "win+d")
-  face: {icon: photo, label: Draw}
+      img = Image.new("RGB", (240, 240), "black")
+      ImageDraw.Draw(img).ellipse((30, 30, 210, 210), fill="orange")
+      deck.dial.set_face(image=img, label="Sun")     # draw on the Dial
+      deck.knobs[1].set_light(color="orange")        # light knob 1 and the Base to match
+      deck.base.set_light(color="orange")
+  face: {icon: sun, label: Sun}
 ```
 
-- **Faces** set from Python sit on top of the config's face for that key and page, including `face_on` and `face_unknown`. They last through config reloads, until they're cleared or hubdeck restarts. Fields you leave out keep their value. `None` resets a field to the config's value, and `""` hides a label, text or icon.
-- **Pages:** `page` defaults to the page of the key that started the code, so slow code still updates its own key after you switch pages. Code with no key behind it, such as a thread you start yourself, uses the page on screen.
-- **Unused keys:** setting a face on a key the config doesn't use makes hubdeck paint it, even in `shared` mode. Clearing the face hands the key back.
+- **Faces** set from Python sit on top of the config's face for that key or Dial on that page, including `face_on` and `face_unknown`. They last through config reloads, until they're cleared or hubdeck restarts. Fields you leave out keep their value. `None` resets a field to the config's value, and `""` hides a label, text or icon.
+- **Lighting** set from Python sits on top of the config's `lighting:` for that LED, on every page, with the same rules for fields.
+- **Pages:** `page` defaults to the page of the control that started the code, so slow code still updates its own page after you switch. Code with no control behind it, such as a thread you start yourself, uses the page on screen.
+- **Unused controls:** setting a face or a light on something the config doesn't use makes hubdeck take it over, opening its module if needed, even in `shared` mode. Clearing a key's face hands the key back.
 - **Images:** `image` takes what the config takes (a file, relative to the config's folder, an `http(s)` URL or a `{vars.…}` template), or a picture made in code: a PIL image, or image bytes such as a PNG or an animated GIF. Pictures made in code are kept in memory while a face uses them.
-- **Timing:** changes are queued and hubdeck applies them in order within about 10 ms. Bad arguments, like an unknown icon or page, raise straight away.
+- **Timing:** changes are queued and hubdeck applies them in order within about 10 ms. Bad arguments, like an unknown icon, page or control, raise straight away.
 - **Plugins:** `deck.run` starts any plugin the config doesn't use yet. A plugin's states only exist while it runs, so to read one from Python that nothing else uses, list the plugin under `plugins:`, for example `system:`.
 
 ### Discord setup

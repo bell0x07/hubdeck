@@ -5,6 +5,7 @@ import pytest
 from PIL import Image
 
 from hubdeck.config import load_config
+from hubdeck.device import layout
 from hubdeck.plugins import REGISTRY
 from hubdeck.render.faces import BLANK, render
 from test_engine import make, tap, wait_for
@@ -15,7 +16,7 @@ pages:
   main:
     keys:
       1: {action: {python: "gate.wait(5); deck.set_face(deck.key, label='hit')"}, face: {label: One}}
-      2: {action: rec.a, face: {label: Two}}
+      2: {action: rec.a, on_long_press: {rec.b: 2}, face: {label: Two}}
   sub:
     keys:
       1: {action: page.back, face: {label: Back}}
@@ -125,6 +126,61 @@ def test_run_rejects_bad_actions(write, args, message):
         eng.deck.run(*args)
 
 
+def test_press_runs_a_keys_actions(write, recorder):
+    eng, _, _ = make(write, CONFIG)
+    eng.deck.press(2)
+    eng.deck.press(2, page="main", gesture="long_press")
+    eng.step()
+    assert recorder.instances[-1].calls == [("a", None), ("b", 2)]
+    eng.deck.press(1, page="sub")                  # page.back
+    eng.deck.goto("sub"); eng.step()
+    eng.deck.press(1); eng.step()
+    assert eng.current_page == "main"
+
+
+@pytest.mark.parametrize("args, kwargs, message", [
+    ((5,), {}, r"deck\.keys\[5\] on page 'main' has no on_press actions"),
+    ((2,), {"gesture": "double_press"}, "has no on_double_press"),
+    ((2,), {"gesture": "wiggle"}, "gesture must be one of"),
+    ((2,), {"page": "nope"}, "no page named"),
+])
+def test_press_rejects_keys_without_actions(write, args, kwargs, message):
+    eng, _, _ = make(write, CONFIG)
+    with pytest.raises(ValueError, match=message):
+        eng.deck.press(*args, **kwargs)
+
+
+def test_pressed_python_key_sees_its_own_number(write):
+    eng, _, _ = make(write, CONFIG)
+    eng.plugins["python"].namespace["gate"] = threading.Event()
+    eng.plugins["python"].namespace["gate"].set()
+    eng.deck.press(1)
+    wait_for(lambda: eng.step() or eng.overrides)
+    assert eng.overrides == {"main": {("keys", 1): {"label": "hit"}}}
+
+
+def test_face_reads_what_a_key_shows(write):
+    eng, _, _ = make(write, CONFIG)
+    assert eng.deck.face(2).label == "Two"
+    assert eng.deck.face(3, page="sub").text == "–"   # {vars.count} is unknown yet
+    assert eng.deck.face(9) is None
+    eng.deck.set_face(2, bg="red")
+    eng.deck.set_var("count", 4)
+    eng.step()
+    assert (eng.deck.face(2).label, eng.deck.face(2).bg) == ("Two", (255, 0, 0))
+    assert eng.deck.face(3, page="sub").text == "4"
+
+
+@pytest.mark.parametrize("rotate", [0, 180])
+def test_is_held(write, rotate):
+    eng, dev, _ = make(write, CONFIG + f"modules: {{keys: {{rotate: {rotate}}}}}\n")
+    idx = layout.index_of("keys", 5, rotate)
+    dev.press(idx); eng.step()
+    assert eng.deck.is_held(5) and not eng.deck.is_held(1)
+    dev.release(idx); eng.step()
+    assert not eng.deck.is_held(5)
+
+
 def test_state_and_vars(write, recorder):
     eng, _, _ = make(write, CONFIG)
     eng.deck.set_var("count", 7)
@@ -174,8 +230,17 @@ def test_brightness(write):
         eng.deck.set_brightness(50, module="knobs")
 
 
+def test_controls_are_numbered_like_the_config(write):
+    eng, _, _ = make(write, CONFIG)
+    with pytest.raises(IndexError, match="keys are numbered 1-15, not 16"):
+        eng.deck.set_face(16, label="x")
+    with pytest.raises(IndexError, match="knobs are numbered 1-3"):
+        eng.deck.knobs[0]
+    assert [repr(k) for k in eng.deck.knobs] == ["deck.knobs[1]", "deck.knobs[2]", "deck.knobs[3]"]
+    assert eng.deck.keys[3] == eng.deck.keys[3] and len(eng.deck.faders) == 5
+
+
 @pytest.mark.parametrize("args, kwargs, message", [
-    ((16,), {"label": "x"}, "key must be a number 1-15"),
     ((1,), {"bg": "notacolour"}, "unknown colour"),
     ((1,), {"icon": "microphon"}, "did you mean microphone"),
     ((1,), {"colour": "red"}, "unknown face field"),
@@ -195,4 +260,4 @@ def test_python_action_targets_its_own_key_and_page(write):
     eng.deck.goto("sub"); eng.step()               # ...while the user switches page
     ns["gate"].set()
     wait_for(lambda: eng.step() or eng.overrides)
-    assert eng.overrides == {"main": {1: {"label": "hit"}}}
+    assert eng.overrides == {"main": {("keys", 1): {"label": "hit"}}}
