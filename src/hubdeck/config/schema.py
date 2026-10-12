@@ -224,6 +224,28 @@ class FaderDef(_Model):
         return v
 
 
+class HomeAfter(_Model):
+    """When a page goes back to start_page by itself: seconds since it was last used."""
+    idle: float | None = Field(default=None, gt=0)    # after arriving, turning or moving a fader
+    press: float | None = Field(default=None, gt=0)   # after pressing a key, the Dial or a knob
+
+    @model_validator(mode="before")
+    @classmethod
+    def _seconds_shorthand(cls, data):
+        return {"idle": data} if isinstance(data, (int, float)) and not isinstance(data, bool) else data
+
+    @model_validator(mode="after")
+    def _something(self):
+        if self.idle is None and self.press is None:
+            raise ValueError("home_after needs 'idle', 'press' or both (seconds)")
+        return self
+
+    def seconds(self, pressed: bool) -> float:
+        """How long the page stays after a press (pressed) or any other use; one left out is the other."""
+        first, other = (self.press, self.idle) if pressed else (self.idle, self.press)
+        return first if first is not None else other
+
+
 def _check_range(v: dict, count: int, what: str):
     bad = [k for k in v if not 1 <= k <= count]
     if bad:
@@ -232,6 +254,7 @@ def _check_range(v: dict, count: int, what: str):
 
 
 class Page(_Model):
+    home_after: HomeAfter | None = None  # go back to start_page after this long without use
     keys: dict[int, KeyDef] = {}
     dial: ControlDef | None = None
     knobs: dict[int, ControlDef] = {}
@@ -433,6 +456,9 @@ class Config(_Model):
             raise ValueError("nothing defined: add a 'keys:' or 'pages:' section")
         if self.start_page not in self.pages:
             raise ValueError(f"start_page {self.start_page!r} is not one of the pages: {', '.join(self.pages)}")
+        if self.pages[self.start_page].home_after:
+            raise ValueError(f"pages.{self.start_page}.home_after: {self.start_page} is the start page, "
+                             "the page home_after goes back to")
         return self
 
     # -- helpers used by the engine ---------------------------------------

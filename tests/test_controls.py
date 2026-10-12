@@ -281,3 +281,33 @@ def test_knobs_driver_decodes_and_maps_leds():
 def test_rollers_driver():
     d = _driver(RollersModule, ["012a04000102 00ff", "012a04000102 ff01"], 0x2A)
     assert d.poll() == [Event("turn", 0, 1), Event("turn", 1, -1)]
+
+
+HOME_AFTER = CONFIG.replace("  other:\n", "  other:\n    home_after: {idle: 60, press: 15}\n")
+
+
+def test_home_after_idle(write, recorder):
+    eng, devs, clock = make(write, HOME_AFTER)
+    devs["keys"].press(0); eng.step()
+    devs["keys"].release(0); eng.step()           # goto is applied on the next step
+    assert eng.current_page == "other"
+    clock.t += 59; eng.step()
+    devs["knobs"].push("turn", 0, 1); eng.step()   # turning counts as use: 60 s from here
+    clock.t += 59; eng.step()
+    assert eng.current_page == "other"
+    clock.t += 1; eng.step()
+    assert eng.current_page == "main"
+
+
+def test_home_after_press(write, recorder):
+    eng, devs, clock = make(write, HOME_AFTER)
+    eng.goto_page("other"); eng.step()
+    devs["keys"].press(5); eng.step()              # any key, even one without actions
+    clock.t += 10
+    devs["keys"].release(5); eng.step()            # letting go doesn't count
+    clock.t += 4.9; eng.step()
+    assert eng.current_page == "other"
+    clock.t += 0.1; eng.step()
+    assert eng.current_page == "main"
+    clock.t += 100; eng.step()
+    assert eng.current_page == "main" and eng._home_at is None

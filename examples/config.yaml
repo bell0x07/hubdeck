@@ -139,6 +139,7 @@ pages:
       face: {icon: brand-spotify, label: "{value}%", gauge: true}
 
   fun:
+    home_after: {idle: 60, press: 15}      # back to main 15 s after a press, or 60 s after any other use
     keys:
       1: {action: page.home, face: {icon: home, label: Home}}
     dial:                                  # same volume control, with a GIF behind the gauge

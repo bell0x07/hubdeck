@@ -133,3 +133,22 @@ def test_on_off_yes_no_stay_text(write):
 def test_invalid_yaml(write):
     with pytest.raises(ConfigError, match="invalid YAML"):
         load_config(write("config.yaml", "keys: {1: [unclosed"))
+
+
+def test_home_after(write):
+    cfg = load_config(write("config.yaml", """
+pages:
+  main: {keys: {1: {face: {label: M}}}}
+  a: {home_after: 60}
+  b: {home_after: {idle: 60, press: 15}}
+  c: {home_after: {press: 15}}
+"""))
+    a, b, c = (cfg.pages[p].home_after for p in "abc")
+    assert (a.seconds(pressed=False), a.seconds(pressed=True)) == (60, 60)
+    assert (b.seconds(pressed=False), b.seconds(pressed=True)) == (60, 15)
+    assert (c.seconds(pressed=False), c.seconds(pressed=True)) == (15, 15)
+    for pages, message in [("{main: {home_after: 60}}", "is the start page"),
+                           ("{main: {}, a: {home_after: {}}}", "needs 'idle', 'press' or both"),
+                           ("{main: {}, a: {home_after: 0}}", "greater than 0")]:
+        with pytest.raises(ConfigError, match=message):
+            load_config(write("config.yaml", f"pages: {pages}"))

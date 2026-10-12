@@ -292,6 +292,10 @@ These share the same fields.
   - `turn: audio.volume` is short for a target.
 - **State:** `state: plugin.state` uses `face_on` while the value is true and `face_unknown` while it's unknown, for example when Discord is closed. Fields you don't set in the overlay are taken from `face`.
 - **Pages:** each page can have its own `dial`, `knobs`, `rollers` and `faders` sections. A page without one uses the start page's section.
+- **Going home by itself:** `home_after: {idle: 60, press: 15}` on a page takes it back to the start page once it's left alone.
+  - Every use of the modules starts the count again: `press` seconds after pressing a key, the Dial or a knob, and `idle` seconds after turning, moving a fader or arriving on the page.
+  - Leave one out and the other counts for both, so `home_after: 60` goes home 60 s after any use.
+  - Only the modules count, not `hubdeck send` or Python. The start page can't have it.
 
 ### Faces (keys and the Dial)
 

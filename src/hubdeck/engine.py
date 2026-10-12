@@ -101,6 +101,7 @@ class Engine:
         self._force = False
         self._accent = None             # last accent colour painted, to repaint when the OS one changes
         self._reload_check_at = 0.0
+        self._home_at: float | None = None   # when the page's home_after takes it back to start_page
         self._reassert_at = 0.0
         self._stop = threading.Event()
         self.listeners: list[Callable[[str, str], None]] = []  # (event, detail): page / error / reloaded / device / quit
@@ -292,6 +293,9 @@ class Engine:
         if reassert and now >= self._reassert_at:
             self._reassert_at = now + reassert
             self._force = True
+        if self._home_at is not None and now >= self._home_at:
+            log.info("page %s: unused for its home_after, back to %s", self.current_page, self.cfg.start_page)
+            self._home()
         if self._dirty or self._force:
             self._paint(now)
 
@@ -444,6 +448,11 @@ class Engine:
                              for (kind, num), z in zones.items()]
 
     # -- pages -------------------------------------------------------------
+    def _keep_page(self, now: float, pressed: bool = False):
+        """Count the page's home_after from now: its `press` time after a press, else its `idle` time."""
+        home_after = self.cfg.pages[self.current_page].home_after if self.current_page else None
+        self._home_at = now + home_after.seconds(pressed) if home_after else None
+
     def _goto(self, name: str):
         if self.cfg and name in self.cfg.pages and name != self.current_page:
             self._set_pages(self.page_stack + [name])
@@ -481,12 +490,15 @@ class Engine:
         self._fader_caught.clear()       # new page, new targets: faders must pick up again
         self._fader_sent.clear()
         self._dirty = True
+        self._keep_page(self.clock())    # a new page or a reload: home_after counts from here
         if changed:
             log.info("page: %s", self.current_page)
             self._notify("page", self.current_page)
 
     # -- input -------------------------------------------------------------
     def _on_event(self, kind: str, e: Event, now: float):
+        if e.kind != "key" or e.value:       # any use but letting go of a key; before the actions,
+            self._keep_page(now, pressed=e.kind == "key")    # which may switch pages
         if e.kind == "key" and kind in self.gestures and 0 <= e.index < PRESSABLE[kind]:
             for i, ev in self.gestures[kind].edge(e.index, bool(e.value), now):
                 self._fire(kind, i, ev)
