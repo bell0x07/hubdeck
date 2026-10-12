@@ -406,7 +406,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `keyboard` | `keys`, `key_down`, `key_up`, `media`, `type` (`cmd`/`win` is Command on macOS) | none | none |
 | `launch` | `open` (file, folder, app or URL; on macOS also an app name), `run` (shell command) | none | none |
 | `python` | `exec` (`{python: code}`) | none | none |
-| `audio` | `toggle_mute` / `mute` / `unmute` (speakers or microphone), `volume_up`, `volume_down`, `set_volume`, `set_output` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
+| `audio` | `toggle_mute` / `mute` / `unmute` (speakers or microphone), `volume_up`, `volume_down`, `set_volume`, `set_output`, `set_input` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output`, `input` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
 | `system` | none | `time`, `cpu`, `ram` | none |
 | `media` (Windows) | none (the media keys are `{media: play_pause}` etc., from `keyboard`) | `playing`, `app`, `title`, `artist` (see below) | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
@@ -426,6 +426,13 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
   ```
 - **Hold to mute:** put `on_down: discord.hold_mute_start` and `on_up: discord.hold_mute_end` on one key. This works even if you switch pages while holding it.
 - **App volume:** applies to every audio session of that process. An app that isn't playing audio has no value, so faders don't take it over.
+- **Switching devices:** `audio.set_output` and `audio.set_input` make the first active playback or recording device whose name contains the argument (any case) the default. On Windows that's the Default Device, not the Default Communication Device. `audio.output` and `audio.input` show the current default's name. One key can switch both:
+
+  ```yaml
+  9:
+    action: [{audio.set_output: DAC5}, {audio.set_input: Scarlett 2i2}]
+    face: {icon: headphones, label: DAC5}
+  ```
 
 ### Python actions
 

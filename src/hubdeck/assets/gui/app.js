@@ -15,7 +15,7 @@ const h = (tag, attrs = {}, ...kids) => {
 
 const NAMES = { keys: "Keys", dial: "Dial", knobs: "Knobs", rollers: "Rollers", faders: "Faders" };
 const SINGULAR = { keys: "Key", dial: "Dial", knobs: "Knob", rollers: "Roller", faders: "Fader" };
-let S = null, META = null, AUDIO = { apps: [], outputs: [] }, SHORTCUTS = null, page = null, sel = null, cur = null, stamp = Date.now();
+let S = null, META = null, AUDIO = { apps: [], outputs: [], inputs: [] }, SHORTCUTS = null, page = null, sel = null, cur = null, stamp = Date.now();
 const IS_MAC = () => META?.platform === "darwin";
 
 // ---------------------------------------------------------------------------------------
@@ -33,6 +33,7 @@ const ACTIONS = [
     { label: "Volume down", arg: { kind: "number", label: "by %", def: 5 }, make: v => ({ "audio.volume_down": v ?? 5 }), is: a => a.name === "audio.volume_down", get: a => a.arg },
     { label: "Set volume to", arg: { kind: "number", label: "%", def: 50 }, make: v => ({ "audio.set_volume": v ?? 50 }), is: a => a.name === "audio.set_volume", get: a => a.arg },
     { label: "Switch speakers / headphones to", arg: { kind: "output" }, make: v => ({ "audio.set_output": v || "" }), is: a => a.name === "audio.set_output", get: a => a.arg },
+    { label: "Switch microphone to", arg: { kind: "input" }, make: v => ({ "audio.set_input": v || "" }), is: a => a.name === "audio.set_input", get: a => a.arg },
   ] },
   { group: "Discord", items: [
     ["toggle_mute", "Mute / unmute"], ["toggle_deafen", "Deafen / undeafen"], ["mute", "Mute"], ["unmute", "Unmute"],
@@ -360,8 +361,8 @@ function argInput(item, value, onChange) {
     oninput: e => onChange(e.target.value === "" ? undefined : Number(e.target.value)) }), h("span", { class: "muted" }, spec.label));
   if (spec.kind === "page") return h("select", { onchange: e => onChange(e.target.value) },
     h("option", { value: "" }, "choose a page"), ...Object.keys(S.pages).map(p => h("option", { value: p, selected: p === value }, p)));
-  if (spec.kind === "output") {
-    const opts = [...new Set([...(AUDIO.outputs || []), ...(value ? [value] : [])])];
+  if (spec.kind === "output" || spec.kind === "input") {
+    const opts = [...new Set([...(AUDIO[spec.kind + "s"] || []), ...(value ? [value] : [])])];
     return h("select", { onchange: e => onChange(e.target.value) },
       h("option", { value: "" }, opts.length ? "choose a device" : "no devices found"),
       ...opts.map(o => h("option", { value: o, selected: o === value }, o)));

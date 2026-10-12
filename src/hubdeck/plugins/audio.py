@@ -1,4 +1,4 @@
-"""Audio: speaker/microphone mute and volume, per-app volume, default output switching.
+"""Audio: speaker/microphone mute and volume, per-app volume, default device switching.
 The OS side is platforms.current().audio()."""
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ class AudioPlugin(ThreadedPlugin):
         "volume_down": "lower speaker volume; argument: step in % (default 5)",
         "set_volume": "set speaker volume; argument: 0-100",
         "set_output": "make the playback device whose name contains the argument the default",
+        "set_input": "make the recording device whose name contains the argument the default",
     }
     states = {
         "speaker_muted": "default playback device muted",
@@ -35,6 +36,7 @@ class AudioPlugin(ThreadedPlugin):
         "volume": "default playback volume 0-100",
         "output": "name of the default playback device",
         "mic_volume": "default recording volume 0-100",
+        "input": "name of the default recording device",
     }
     values = {
         "volume": "default playback volume 0-100",
@@ -62,8 +64,8 @@ class AudioPlugin(ThreadedPlugin):
             return f"audio.{action}: argument must be a number (percent)"
         elif action == "set_volume" and not (isinstance(arg, (int, float)) and 0 <= arg <= 100):
             return "audio.set_volume needs a number 0-100"
-        elif action == "set_output" and not isinstance(arg, str):
-            return "audio.set_output needs (part of) a device name"
+        elif action in ("set_output", "set_input") and not isinstance(arg, str):
+            return f"audio.{action} needs (part of) a device name"
         return None
 
     def setup(self):
@@ -85,12 +87,13 @@ class AudioPlugin(ThreadedPlugin):
                 step = float(arg if arg is not None else 5)
                 level = b.get_volume("speakers") + (step if action == "volume_up" else -step)
             b.set_volume("speakers", level)
-        elif action == "set_output":
-            name = b.set_output(arg)
+        elif action in ("set_output", "set_input"):
+            kind, what = ("speakers", "playback") if action == "set_output" else ("microphone", "recording")
+            name = b.set_default(kind, arg)
             if name:
-                self.log.info("default output -> %s", name)
+                self.log.info("default %s device -> %s", what, name)
             else:
-                self.log.warning("no active playback device matching %r", arg)
+                self.log.warning("no active %s device matching %r", what, arg)
         self.tick()
 
     # -- values ------------------------------------------------------------
@@ -132,15 +135,16 @@ class AudioPlugin(ThreadedPlugin):
         try:
             self.ctx.set_state("speaker_muted", b.get_mute("speakers"))
             self.ctx.set_state("volume", round(b.get_volume("speakers")))
-            self.ctx.set_state("output", b.output_name())
+            self.ctx.set_state("output", b.default_name("speakers"))
         except Exception:  # no device, or a COMError while devices change
             for k in ("speaker_muted", "volume", "output"):
                 self.ctx.set_state(k, None)
         try:
             self.ctx.set_state("mic_muted", b.get_mute("microphone"))
             self.ctx.set_state("mic_volume", round(b.get_volume("microphone")))
+            self.ctx.set_state("input", b.default_name("microphone"))
         except Exception:
-            self.ctx.set_state("mic_muted", None)
-            self.ctx.set_state("mic_volume", None)
+            for k in ("mic_muted", "mic_volume", "input"):
+                self.ctx.set_state(k, None)
         for name, arg in list(self.watched):
             self._publish_value(name, arg)
