@@ -35,7 +35,7 @@ class RenderFace:
     frame: int = 0                # animation frame, so each frame gets its own cache entry
 
 
-ACCENT = "accent"            # colour name for the system accent colour (macOS), else hubdeck green
+ACCENT = "accent"            # colour name for the system accent colour (macOS, Windows), else hubdeck green
 ACCENT_FALLBACK = (60, 200, 110)
 ACCENT_REFRESH_SECONDS = 2
 _accent: tuple[float, Color] = (-ACCENT_REFRESH_SECONDS, ACCENT_FALLBACK)
