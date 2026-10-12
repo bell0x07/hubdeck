@@ -153,13 +153,15 @@ class GuiServer:
             return None, str(e)
 
     def connected(self) -> list[str]:
-        if self.engine is not None:
-            return sorted(self.engine.manager.devices)
+        """Modules plugged in, plus those the running hubdeck has open. hubdeck only opens
+        the modules the config uses, so a new one must show up from USB, or it couldn't be set up."""
+        kinds = set(self.engine.manager.devices) if self.engine is not None else set()
         try:
             from ..device.manager import present_kinds
-            return sorted(present_kinds())
+            kinds |= present_kinds()
         except Exception:
-            return []
+            pass
+        return sorted(kinds)
 
     def layout(self, cfg, connected: list[str], used: list[str]) -> dict:
         """The Base grid and where each module sits on it, rotated, with its controls."""
