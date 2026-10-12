@@ -373,17 +373,52 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 5:
   action:
     python: |
-      import winsound
       count = globals().get("count", 0) + 1
-      winsound.Beep(440 + 50 * count, 150)
+      deck.set_face(deck.key, text=str(count), bg="#c81e28" if count % 2 else None)
       log.info("pressed %d times", count)
-  face: {icon: brand-python, label: Beep}
+  face: {text: "0", label: Count}
 ```
 
 - Syntax errors are reported when the config loads, like any other config error.
 - Errors raised while the code runs go to the log with a traceback.
 - All `python` actions share one set of variables, which lasts until hubdeck restarts. `log` writes to `hubdeck.log`. `print` only shows up when you use `hubdeck run`.
 - Every press runs its code on a new thread, so slow code never holds up other keys, including other `python` actions. Two presses can run at the same time, so code that changes shared variables from several keys may need a `threading.Lock`. Several `python` actions in one list also run at the same time, so put code that must run in order into a single snippet.
+
+#### Controlling hubdeck from Python
+
+The code also gets `deck`:
+
+| call | what it does |
+| --- | --- |
+| `deck.key` | the number of the key whose press started this code (`None` for other controls, and in threads you start yourself) |
+| `deck.page`, `deck.pages` | the page on screen, and the names of all pages |
+| `deck.goto(page)`, `deck.back()`, `deck.home()` | switch pages, like the `page` actions |
+| `deck.set_face(key, page=None, **fields)` | change a key's face, with the same fields as in the config: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `image`, `image_fit` |
+| `deck.clear_face(key, page=None)`, `deck.clear_faces(page=None)` | go back to the config's face for one key, or for every key on a page |
+| `deck.run(action, arg=None)` | run any action, written as in the config: `deck.run("discord.toggle_mute")`, `deck.run("keys", "ctrl+c")`, `deck.run({"audio.set_volume": 30})` or a list |
+| `deck.state(name, default=None)`, `deck.states` | read state values, e.g. `deck.state("audio.volume")` |
+| `deck.set_var(name, value)` | set `vars.<name>`, like `{vars.set: ...}` or `hubdeck send set`: faces show it as `{vars.name}`, and `state: vars.name` switches on it |
+| `deck.set_brightness(percent, module="keys")` | screen backlight 0–100 for `keys` or `dial`, until the config's brightness changes |
+| `deck.reload()` | reload the config |
+
+```yaml
+8:
+  action:
+    python: |
+      from PIL import Image, ImageDraw
+      img = Image.new("RGB", (72, 72), "black")
+      ImageDraw.Draw(img).ellipse((8, 8, 64, 64), fill="orange")
+      deck.set_face(deck.key, image=img, label="Sun")
+      deck.run("keys", "win+d")
+  face: {icon: photo, label: Draw}
+```
+
+- **Faces** set from Python sit on top of the config's face for that key and page, including `face_on` and `face_unknown`. They last through config reloads, until they're cleared or hubdeck restarts. Fields you leave out keep their value. `None` resets a field to the config's value, and `""` hides a label, text or icon.
+- **Pages:** `page` defaults to the page of the key that started the code, so slow code still updates its own key after you switch pages. Code with no key behind it, such as a thread you start yourself, uses the page on screen.
+- **Unused keys:** setting a face on a key the config doesn't use makes hubdeck paint it, even in `shared` mode. Clearing the face hands the key back.
+- **Images:** `image` takes what the config takes (a file, relative to the config's folder, an `http(s)` URL or a `{vars.…}` template), or a picture made in code: a PIL image, or image bytes such as a PNG or an animated GIF. Pictures made in code are kept in memory while a face uses them.
+- **Timing:** changes are queued and hubdeck applies them in order within about 10 ms. Bad arguments, like an unknown icon or page, raise straight away.
+- **Plugins:** `deck.run` starts any plugin the config doesn't use yet. A plugin's states only exist while it runs, so to read one from Python that nothing else uses, list the plugin under `plugins:`, for example `system:`.
 
 ### Discord setup
 

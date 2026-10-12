@@ -2,6 +2,7 @@
 
 URLs are downloaded in the background (size limit, timeout) into a cache
 folder; until then `get` returns None and the face draws without the image.
+Pictures made in code (deck.set_face) are kept in memory under a `memory:` name.
 """
 
 from __future__ import annotations
@@ -20,6 +21,9 @@ log = logging.getLogger("hubdeck.images")
 MAX_DOWNLOAD = 10 * 1024 * 1024
 MAX_FRAMES = 300
 MIN_FRAME_SECONDS = 0.02        # GIFs with 0/10 ms delays are meant to be ~50 fps at most
+
+
+MEMORY = "memory:"
 
 
 def is_url(src: str) -> bool:
@@ -63,6 +67,7 @@ class ImageStore:
         self.cache_dir = Path(cache_dir)
         self._images: dict[str, LoadedImage | None] = {}   # None = failed
         self._pending: set[str] = set()
+        self._memory: dict[str, LoadedImage] = {}   # pictures made in code; survive forget()
         self._lock = threading.Lock()
         self.changed = threading.Event()   # set when a download finished
 
@@ -73,6 +78,8 @@ class ImageStore:
 
     def get(self, src: str) -> LoadedImage | None:
         with self._lock:
+            if src.startswith(MEMORY):
+                return self._memory.get(src)
             if src in self._images:
                 return self._images[src]
         if is_url(src):
@@ -133,3 +140,20 @@ class ImageStore:
         """Drop loaded images (config reload: files may have changed)."""
         with self._lock:
             self._images.clear()
+
+    def put(self, image: LoadedImage) -> str:
+        """Keep a picture made in code; returns the name faces use for it."""
+        digest = hashlib.sha1()
+        for frame in image.frames:
+            digest.update(f"{frame.size}".encode())
+            digest.update(frame.tobytes())
+        src = f"{MEMORY}{digest.hexdigest()[:16]}"
+        with self._lock:
+            self._memory[src] = image
+        return src
+
+    def keep_memory(self, used: set[str]):
+        """Drop in-memory pictures no face uses any more."""
+        with self._lock:
+            for src in [s for s in self._memory if s not in used]:
+                del self._memory[src]
