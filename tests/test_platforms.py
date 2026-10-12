@@ -257,3 +257,35 @@ def test_windows_start_at_login_uses_the_run_key(tmp_path, monkeypatch):
     assert plat.start_at_login() is False             # on, but for the other copy of hubdeck
     plat.set_start_at_login(True)
     assert plat.start_at_login() is True
+
+
+def test_windows_accent_color_from_the_registry(monkeypatch):
+    win = pytest.importorskip("hubdeck.platforms.windows")
+    reg = FakeWinreg()
+    monkeypatch.setitem(sys.modules, "winreg", reg)
+    plat = win.WindowsPlatform()
+    assert plat.accent_color() is None                 # nothing set: hubdeck green
+
+    reg.keys[("HKCU", win.DWM_KEY)] = {"AccentColor": 0xFF008CFF}             # ABGR
+    assert plat.accent_color() == (255, 140, 0)
+
+    shades = ["ffd155", "ffb634", "ff9910", "ff8c00", "e37700", "a14600", "651900", "0063b1"]
+    reg.keys[("HKCU", win.ACCENT_KEY)] = {"AccentPalette": b"".join(bytes.fromhex(c) + b"\0" for c in shades)}
+    reg.keys[("HKCU", win.DWM_KEY)] = {"AccentColor": 0xFFFFFFFF}            # the palette wins
+    assert plat.accent_color() == (255, 140, 0)        # its 4th shade: what Settings shows
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows mutex")
+def test_windows_single_instance_frees_the_other_hubdecks_mutex(monkeypatch):
+    """A copy that found hubdeck running mustn't keep its mutex alive: `hubdeck-tray --replace`
+    waits for it to go away. (A test name, so a hubdeck running on this PC doesn't count.)"""
+    import ctypes
+    win = pytest.importorskip("hubdeck.platforms.windows")
+    monkeypatch.setattr(win, "MUTEX_NAME", rf"Local\hubdeck-test-{os.getpid()}")
+    first, second = win.WindowsPlatform(), win.WindowsPlatform()
+    assert first.acquire_single_instance() is True
+    assert second.acquire_single_instance() is False
+    assert second.acquire_single_instance() is False
+    ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(first._mutex))   # the first hubdeck quits
+    assert second.acquire_single_instance() is True
+    ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(second._mutex))

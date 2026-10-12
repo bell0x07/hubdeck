@@ -92,7 +92,7 @@ class Engine:
         self._reload_check_at = 0.0
         self._reassert_at = 0.0
         self._stop = threading.Event()
-        self.listeners: list[Callable[[str, str], None]] = []  # (event, detail): page / error / reloaded / device
+        self.listeners: list[Callable[[str, str], None]] = []  # (event, detail): page / error / reloaded / device / quit
 
     # -- public API (thread-safe) -----------------------------------------
     @property
@@ -207,6 +207,10 @@ class Engine:
             self._force = True
         if self._dirty or self._force:
             self._paint(now)
+
+    def notify(self, event: str, detail: str = ""):
+        """Tell the listeners (the tray) about an event, e.g. "quit" from the control channel."""
+        self._notify(event, detail)
 
     def _notify(self, event: str, detail: str = ""):
         for cb in self.listeners:

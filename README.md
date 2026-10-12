@@ -67,7 +67,7 @@ From source, run them as `.\.venv\Scripts\hubdeck.exe …` on Windows and `.venv
 3. `hubdeck` is on your PATH for `hubdeck send …`, `hubdeck list` and the rest. Open a new terminal after installing.
 4. **To start at login,** turn on **Start at login** in the tray menu. It shows up in Task Manager › Startup apps as hubdeck.
 
-- **Upgrading:** quit hubdeck from the tray, then run the new MSI. It replaces the installed version, including a development build of the same version. An older version refuses to install over a newer one.
+- **Upgrading:** run the new MSI, even while hubdeck runs. It replaces the installed version, including a development build of the same version, then restarts hubdeck on the new one. An older version refuses to install over a newer one.
 - **Uninstalling:** Settings › Apps › Installed apps › hubdeck. Your config in `%APPDATA%\hubdeck` stays. Turn **Start at login** off first: uninstalling doesn't remove that entry, so Startup apps would keep one that does nothing until you reinstall.
 - **What's installed:** `%LOCALAPPDATA%\Programs\hubdeck` holds `hubdeck-tray.exe` (the tray app), `hubdeck.exe` (the command line) and hubdeck's own Python. `hubdeck-<version>-windows-x64.zip` is the same folder, to run from anywhere without installing.
 
@@ -116,7 +116,6 @@ Running from a source checkout (see [Install](#install)) works too. Permissions 
 - **Per-app volume:** macOS has no per-app mixer, so `audio.app_volume` only works for apps that expose a volume to AppleScript, such as **Spotify** and **Music**. Name the app as it appears in the Dock, e.g. `arg: Spotify`. Windows names like `spotify.exe` work too, so one config can serve both. Each change takes the app about 0.2 s, so hubdeck sends them in the background and skips to the latest level while you turn.
 - **Microphone mute:** a microphone with no mute switch (many USB mics) is muted by setting its input volume to 0 and restoring it afterwards.
 - **`open`** also takes an app name, e.g. `{open: Spotify}`.
-- **Colours:** the default icon colour is your macOS accent colour (System Settings › Appearance), and it follows changes within about 2 seconds. Use `accent` as a colour anywhere to get it, e.g. `lighting: {base: {color: accent}}`. On other systems `accent` is hubdeck green.
 - **The 2xRoller module** sent no input on macOS in testing (the knobs, Dial and keys work). It's not known yet whether that's macOS or the test unit.
 - **Start at login from source:** save this as `~/Library/LaunchAgents/com.github.hubdeck.plist`, with the path to your clone, then run `launchctl load ~/Library/LaunchAgents/com.github.hubdeck.plist`:
 
@@ -296,7 +295,7 @@ These share the same fields.
 ### Faces (keys and the Dial)
 
 - **Fields:** `icon` (a Tabler name; `filled: true` uses the filled style), `label`, `text`, `bg`, `fg` (icon colour), `label_color` and `font_size`.
-- **Colours** are `#rrggbb`, a name like `red`, or `accent`: the system accent colour on macOS, hubdeck green elsewhere. Icons default to `accent`.
+- **Colours** are `#rrggbb`, a name like `red`, or `accent`: your system accent colour (macOS: System Settings › Appearance; Windows: Settings › Personalization › Colors), followed within about 2 seconds of a change, and hubdeck green elsewhere. Icons default to `accent`; for example `lighting: {base: {color: accent}}` lights the Base in it.
 - **Live text:** `text` and `label` can include `{plugin.state}` or `{plugin.state:format}`, for example `{system.time:%H:%M}` or `{system.cpu:.0f}%`. For multi-line text, `:line1`, `:line2`… picks one line.
 - **Control value:** on a control with a turn target, `{value}` shows the target's current value, and `gauge: true` draws a ring around the Dial.
 - **Pictures:** `image: file.png`, `.jpg` or **animated `.gif`**, or a picture sent from outside, `image: "{vars.picture}"` (see [`hubdeck send`](#driving-hubdeck-hubdeck-send)).

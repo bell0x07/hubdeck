@@ -190,3 +190,13 @@ def test_release_publishes_both_systems_but_no_dev_builds(monkeypatch, tmp_path)
     release.main()
     assert published == [wanted, wanted]
     assert {Path(n).suffix for n in wanted} <= set(release.CONTENT_TYPES)
+
+
+def test_msi_starts_the_installed_tray(tmp_path):
+    """hubdeck.wxs's StartHubdeck action points at hubdeck-tray.exe by its File id."""
+    root = ET.fromstring(windows.files_wxs(_app(tmp_path)))
+    tray = next(f for f in root.iter(f"{WIX}File") if f.get("Name") == "hubdeck-tray.exe")
+    assert tray.get("Id") == windows.TRAY_FILE
+    wxs = (ROOT / "packaging/windows/hubdeck.wxs").read_text()
+    ET.fromstring(wxs)                                 # well-formed: e.g. no "--" inside a comment
+    assert 'FileKey="$(var.TrayFile)" ExeCommand="--replace"' in wxs

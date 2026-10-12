@@ -36,7 +36,8 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
 - **`cli.py` / `cli_probe.py`:** the `hubdeck` command, including the hidden `probe` tools. `tray.py` is `hubdeck-tray`.
 - **`packaging/`:** the macOS app and the Windows MSI and zip, both cross-built on Linux (Docker or GitLab CI) from python-build-standalone, the target's wheels and zig-compiled launchers. `common.py` is shared by both builds; `release.py` publishes `vX.Y.Z` tags to GitLab and GitHub.
   - Windows: the launchers load `python\python313.dll` in-process, and `python313._pth` sets `sys.path` and isolates it from `PYTHON*` variables.
-  - The MSI is built with wixl 0.106 (Debian trixie). It leaves file versions out, so a component's key path must never be an .exe, .dll or .pyd, or upgrades lose those files. It also has `Permanent` backwards on `<Environment>`.
+  - The MSI is built with wixl 0.106 (Debian trixie). It leaves file versions out, so a component's key path must never be an .exe, .dll or .pyd, or upgrades lose those files. It also has `Permanent` backwards on `<Environment>`, and supports custom actions only by `FileKey` (not `Directory`). No `--` inside XML comments in `hubdeck.wxs`.
+  - Windows swaps an installed hubdeck's files while it runs, and it keeps running the old code. So after installing, the MSI starts `hubdeck-tray.exe --replace` (`instance.replace_running`): it sends `quit` over the control channel, or stops older copies of the same exe that don't know `quit`, then takes over.
 
 ## Hardware facts that matter (all verified)
 

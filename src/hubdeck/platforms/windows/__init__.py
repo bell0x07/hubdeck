@@ -13,6 +13,9 @@ from ..base import IpcConnection, Platform, Unsupported
 CREATE_NO_WINDOW = 0x08000000
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"     # what Task Manager's Startup apps lists
 RUN_VALUE = "hubdeck"
+MUTEX_NAME = "Local\\hubdeck-single-instance"
+ACCENT_KEY =r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"
+DWM_KEY = r"Software\Microsoft\Windows\DWM"
 
 
 def tray_exe() -> Path | None:
@@ -65,8 +68,13 @@ class WindowsPlatform(Platform):
     def acquire_single_instance(self) -> bool:
         kernel32 = ctypes.windll.kernel32
         kernel32.CreateMutexW.restype = ctypes.c_void_p
-        self._mutex = kernel32.CreateMutexW(None, False, "Local\\hubdeck-single-instance")
-        return kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.CreateMutexW(None, False, MUTEX_NAME)
+        if kernel32.GetLastError() == 183:      # ERROR_ALREADY_EXISTS: another hubdeck has it
+            kernel32.CloseHandle(handle)        # don't keep it alive after that one quits
+            return False
+        self._mutex = handle
+        return True
 
     def open(self, target: str):
         os.startfile(target)
@@ -100,6 +108,25 @@ class WindowsPlatform(Platform):
     def keyboard(self):
         from .keyboard import SendInputKeyboard
         return SendInputKeyboard()
+
+    def accent_color(self) -> tuple[int, int, int] | None:
+        """The accent colour from Settings > Personalization > Colors. AccentPalette holds 8
+        shades of it, RGBA; the 4th is the accent itself (what apps get as UISettings' Accent).
+        DWM's AccentColor (ABGR) is the same colour, kept as a fallback."""
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, ACCENT_KEY) as key:
+                palette, _ = winreg.QueryValueEx(key, "AccentPalette")
+            if isinstance(palette, bytes) and len(palette) >= 16:
+                return tuple(palette[12:15])
+        except OSError:
+            pass
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DWM_KEY) as key:
+                abgr, _ = winreg.QueryValueEx(key, "AccentColor")
+        except OSError:
+            return None
+        return (abgr & 0xFF, (abgr >> 8) & 0xFF, (abgr >> 16) & 0xFF)
 
     def start_at_login(self) -> bool | None:
         exe = tray_exe()

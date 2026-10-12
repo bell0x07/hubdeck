@@ -120,6 +120,29 @@ def test_live_mode_uses_engine_state(cfg_path, recorder):
         eng.shutdown()
 
 
+def test_live_mode_shows_plugged_in_modules_the_config_doesnt_use(cfg_path, recorder, monkeypatch):
+    """hubdeck only opens the modules the config uses: the editor must still show a new one
+    from USB, or there's no way to set it up (seen on macOS with the Dial and Knobs)."""
+    from hubdeck.device import manager
+    from hubdeck.device.fake import FakeKeyModule
+    from hubdeck.engine import Engine
+    monkeypatch.setattr(manager, "present_kinds", lambda: {"keys", "dial"})
+    eng = Engine(ConfigSource(cfg_path), factories={"keys": lambda: FakeKeyModule()})
+    eng.load_initial()
+    eng.step()
+    s = GuiServer(ConfigSource(cfg_path), engine=eng, port=0)
+    try:
+        st = s.api_state()
+        assert set(eng.manager.devices) == {"keys"} and "dial" not in st["used"]
+        assert st["connected"] == ["dial", "keys"]
+        shown = {kind: m["connected"] for kind, m in st["layout"]["modules"].items()}
+        assert shown["dial"] is True                      # plugged in, not used yet: shown
+        assert shown["knobs"] is False                    # used by the config, not plugged in
+    finally:
+        s.httpd.server_close()
+        eng.shutdown()
+
+
 def test_invalid_change_is_not_written(cfg_path):
     doc = ConfigDoc(cfg_path)
     doc.set_item("main", "keys", 2, {"action": "rec.nope"})

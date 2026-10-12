@@ -5,6 +5,7 @@
      Per user, no admin rights: installs into %LOCALAPPDATA%\Programs\hubdeck, adds a Start menu
      shortcut to the tray app and puts hubdeck.exe on the user's PATH. A newer or same-version
      MSI replaces the installed one (development builds share their X.Y.Z); an older one refuses.
+     Then it starts hubdeck, replacing a running one.
      Never change the UpgradeCode: it's how Windows knows that a new MSI replaces this one. -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="hubdeck" Manufacturer="bell0x07" Language="1033" Version="$(var.Version)"
@@ -49,6 +50,16 @@
                        KeyPath="yes"/>
       </Component>
     </DirectoryRef>
+
+    <!-- After installing or upgrading, start hubdeck with its replace option: the running one
+         (still the old version: Windows swapped its files underneath it) quits and the new one
+         takes over. Not for silent installs (msiexec /qn) or uninstalling. XML comments can't
+         contain two hyphens in a row, hence no option names here. -->
+    <CustomAction Id="StartHubdeck" FileKey="$(var.TrayFile)" ExeCommand="--replace" Return="asyncNoWait"
+                  Impersonate="yes"/>
+    <InstallExecuteSequence>
+      <Custom Action="StartHubdeck" After="InstallFinalize">NOT (REMOVE~="ALL") AND UILevel &gt; 2</Custom>
+    </InstallExecuteSequence>
 
     <Feature Id="hubdeck" Level="1">
       <ComponentRef Id="StartMenuShortcut"/>

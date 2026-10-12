@@ -179,6 +179,9 @@ def files_wxs(folder: Path) -> str:
     return ET.tostring(root, encoding="unicode", xml_declaration=True) + "\n"
 
 
+TRAY_FILE = ident("f", "/hubdeck-tray.exe")   # its File id in files.wxs, for the StartHubdeck action
+
+
 def find_wixl() -> str:
     wixl = shutil.which("wixl")
     if not wixl:
@@ -196,7 +199,7 @@ def build_msi(wixl: str, folder: Path, work: Path, ico: Path, version: str, dest
     files.write_text(files_wxs(folder), encoding="utf-8")
     dest.parent.mkdir(parents=True, exist_ok=True)
     run([wixl, "-a", "x64", "-D", f"Version={msi_version(version)}", "-D", f"BuildVersion={version}",
-         "-D", f"Icon={ico}", "-o", dest, HERE / "hubdeck.wxs", files])
+         "-D", f"Icon={ico}", "-D", f"TrayFile={TRAY_FILE}", "-o", dest, HERE / "hubdeck.wxs", files])
 
 
 def main():
