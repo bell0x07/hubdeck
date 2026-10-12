@@ -60,6 +60,12 @@ pages:
         state: audio.mic_muted
         face:    {icon: microphone, label: MIC}
         face_on: {icon: microphone-off, label: MUTED, bg: "#c81e28", fg: white}
+      8:
+        action:                              # Python code; `deck` controls hubdeck (see README)
+          python: |
+            count = globals().get("count", 0) + 1
+            deck.set_face(deck.key, text=str(count), bg="#c81e28" if count % 2 else None)
+        face: {text: "0", label: Count}
 
       # Discord (needs the plugins.discord section above):
       # 11:
