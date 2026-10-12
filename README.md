@@ -411,11 +411,11 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `keyboard` | `keys`, `key_down`, `key_up`, `media`, `type` (`cmd`/`win` is Command on macOS) | none | none |
 | `launch` | `open` (file, folder, app or URL; on macOS also an app name), `run` (shell command) | none | none |
 | `python` | `exec` (`{python: code}`) | none | none |
-| `audio` | `toggle_mute` / `mute` / `unmute` (speakers or microphone), `volume_up`, `volume_down`, `set_volume`, `set_output`, `set_input` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output`, `input` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`, or `focused`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
+| `audio` | `toggle_mute` / `mute` / `unmute` (speakers, microphone, or one app: `{app: spotify.exe}`, `{app: focused}`), `volume_up`, `volume_down`, `set_volume`, `set_output`, `set_input` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output`, `input` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`, or `focused`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
 | `system` | none | `time`, `cpu`, `ram` | none |
 | `media` (Windows) | none (the media keys are `{media: play_pause}` etc., from `keyboard`) | `playing`, `app`, `title`, `artist` (see below) | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
-| `spotify` | `volume_up`, `volume_down` (step in %, default 5), `set_volume` (0–100) | `volume`, `device` (where Spotify plays) | `volume` (Spotify's own slider, [setup](#spotify-setup)) |
+| `spotify` | `volume_up`, `volume_down` (step in %, default 5), `set_volume` (0–100), `toggle_mute` / `mute` / `unmute` | `volume`, `muted`, `device` (where Spotify plays) | `volume` (Spotify's own slider, [setup](#spotify-setup)) |
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
 
@@ -440,7 +440,15 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
       turn: {target: audio.app_volume, arg: focused}
       on_turn: {python: 'deck.dial.set_face(text=deck.focused.app.removesuffix(".exe") if deck.focused else "-", label="{value}%", gauge=True, value_of=deck.control, replace=True, seconds=1.5)'}
   ```
-- **Spotify's volume:** `spotify.volume` is the slider in the Spotify app. That's separate from Spotify's level in the Windows mixer, which `audio.app_volume` sets. It works through Spotify's Web API on whatever device Spotify plays on, including a phone or speaker, so it needs Spotify Premium and a [Spotify app](#spotify-setup). It's unknown while nothing plays on Spotify. hubdeck reads it back every 2 s, so changes made in Spotify itself show too.
+- **Muting one app (Windows):** `{audio.toggle_mute: {app: discord.exe}}` mutes that app in the Windows mixer, and `{app: focused}` the focused one. It takes the same names as `app_volume`, including the processes an app started, and works well as a knob's press next to its volume:
+
+  ```yaml
+  knobs:
+    3:
+      turn: {target: audio.app_volume, arg: ms-teams.exe}
+      action: {audio.toggle_mute: {app: ms-teams.exe}}
+  ```
+- **Spotify's volume:** `spotify.volume` is the slider in the Spotify app. That's separate from Spotify's level in the Windows mixer, which `audio.app_volume` sets. It works through Spotify's Web API on whatever device Spotify plays on, including a phone or speaker, so it needs Spotify Premium and a [Spotify app](#spotify-setup). It's unknown while nothing plays on Spotify. hubdeck reads it back every 2 s, so changes made in Spotify itself show too. `spotify.toggle_mute` works like Spotify's own mute button: the volume goes to 0, and back to where it was on the next press.
 
   ```yaml
   knobs:

@@ -30,6 +30,7 @@ REDIRECT_URI = "http://127.0.0.1:8973/callback"
 POLL_SECONDS = 2        # read the volume back this often, for changes made in Spotify itself
 SETTLE_SECONDS = 2      # after a change, Spotify still reports the old volume for a moment
 LOGIN_SECONDS = 300     # how long the browser login may take
+UNMUTE_LEVEL = 50       # unmuting goes back to the last volume above 0, or this if there was none
 
 
 class SpotifyError(Exception):
@@ -194,9 +195,12 @@ class SpotifyPlugin(ThreadedPlugin):
         "volume_up": "raise Spotify's volume; argument: step in % (default 5)",
         "volume_down": "lower Spotify's volume; argument: step in % (default 5)",
         "set_volume": "set Spotify's volume; argument: 0-100",
+        "toggle_mute": "mute like Spotify's own mute button: volume 0, and back to where it was",
+        "mute": "set Spotify's volume to 0", "unmute": "set Spotify's volume back to where it was before 0",
     }
     states = {
         "volume": "Spotify's own volume 0-100; unknown while nothing plays on Spotify",
+        "muted": "true while Spotify's volume is 0",
         "device": "the device Spotify plays on, e.g. this computer's name",
     }
     values = {
@@ -225,10 +229,13 @@ class SpotifyPlugin(ThreadedPlugin):
             return f"spotify.{action}: argument must be a number (percent)"
         if action == "set_volume" and not (isinstance(arg, (int, float)) and 0 <= arg <= 100):
             return "spotify.set_volume needs a number 0-100"
+        if action in ("toggle_mute", "mute", "unmute") and arg is not None:
+            return f"spotify.{action} takes no argument"
         return None
 
     def setup(self):
         self.level: float | None = None
+        self.unmuted = float(UNMUTE_LEVEL)     # the last volume above 0, for unmuting
         self.device: str | None = None
         self.next_poll = self.settle_until = 0.0
         self.last_error: str | None = None
@@ -240,7 +247,10 @@ class SpotifyPlugin(ThreadedPlugin):
 
     def _publish(self):
         level = None if self.level is None else round(self.level)
+        if level:
+            self.unmuted = self.level
         self.ctx.set_state("volume", level)
+        self.ctx.set_state("muted", None if level is None else level == 0)
         self.ctx.set_state("device", self.device)
         self.ctx.set_state(value_state("volume", None), level)
 
@@ -320,6 +330,10 @@ class SpotifyPlugin(ThreadedPlugin):
             return
         if action == "set_volume":
             self._set(float(arg))
+        elif action in ("toggle_mute", "mute", "unmute"):
+            mute = {"mute": True, "unmute": False}.get(action, round(self.level) > 0)
+            if mute != (round(self.level) == 0):
+                self._set(0 if mute else self.unmuted)
         else:
             step = float(arg if arg is not None else 5)
             self._set(self.level + (step if action == "volume_up" else -step))

@@ -112,3 +112,11 @@ class WinAudio(AudioBackend):
     def set_app_volume(self, app: str, level: float):
         for s in self._sessions(app):
             s.SimpleAudioVolume.SetMasterVolume(max(0.0, min(100.0, level)) / 100, None)
+
+    def get_app_mute(self, app: str) -> bool | None:
+        muted = [bool(s.SimpleAudioVolume.GetMute()) for s in self._sessions(app)]
+        return all(muted) if muted else None
+
+    def set_app_mute(self, app: str, mute: bool):
+        for s in self._sessions(app):
+            s.SimpleAudioVolume.SetMute(int(mute), None)

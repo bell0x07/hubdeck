@@ -3,7 +3,7 @@ The OS side is platforms.current().audio()."""
 
 from __future__ import annotations
 
-from ..platforms import current
+from ..platforms import Unsupported, current
 from .base import ThreadedPlugin, adjusted, value_state
 
 FOCUSED = "focused"     # app_volume arg: whichever app has focus
@@ -19,12 +19,18 @@ def _kind(arg) -> str:
     return KINDS[str(arg).lower()]
 
 
+def _app_arg(arg) -> str | None:
+    """The app of a mute argument like {app: spotify.exe} or {app: focused}; None for a device."""
+    return arg["app"] if isinstance(arg, dict) and "app" in arg else None
+
+
 class AudioPlugin(ThreadedPlugin):
     name = "audio"
     interval = 0.5
     actions = {
-        "toggle_mute": "toggle mute; argument: speakers (default) or microphone",
-        "mute": "mute speakers/microphone", "unmute": "unmute speakers/microphone",
+        "toggle_mute": "toggle mute; argument: speakers (default), microphone, or {app: spotify.exe} "
+                       "(or {app: focused}) for one app",
+        "mute": "mute speakers/microphone/{app: ...}", "unmute": "unmute speakers/microphone/{app: ...}",
         "volume_up": "raise speaker volume; argument: step in % (default 5)",
         "volume_down": "lower speaker volume; argument: step in % (default 5)",
         "set_volume": "set speaker volume; argument: 0-100",
@@ -57,10 +63,14 @@ class AudioPlugin(ThreadedPlugin):
     @classmethod
     def check_action(cls, action, arg):
         if action in ("toggle_mute", "mute", "unmute"):
+            if isinstance(arg, dict) and "app" in arg:
+                if set(arg) != {"app"} or not (isinstance(arg["app"], str) and arg["app"].strip()):
+                    return f"audio.{action}: {{app: ...}} needs the app's process name, e.g. spotify.exe, or focused"
+                return None
             try:
                 _kind(arg)
             except KeyError:
-                return f"audio.{action}: argument must be speakers or microphone"
+                return f"audio.{action}: argument must be speakers, microphone or {{app: <process name>}}"
         elif action in ("volume_up", "volume_down") and arg is not None and not isinstance(arg, (int, float)):
             return f"audio.{action}: argument must be a number (percent)"
         elif action == "set_volume" and not (isinstance(arg, (int, float)) and 0 <= arg <= 100):
@@ -78,7 +88,9 @@ class AudioPlugin(ThreadedPlugin):
 
     def handle(self, action, arg):
         b = self.backend
-        if action in ("toggle_mute", "mute", "unmute"):
+        if action in ("toggle_mute", "mute", "unmute") and (app := _app_arg(arg)) is not None:
+            self._mute_app(action, app)
+        elif action in ("toggle_mute", "mute", "unmute"):
             kind = _kind(arg)
             b.set_mute(kind, {"mute": True, "unmute": False}.get(action, not b.get_mute(kind)))
         elif action in ("volume_up", "volume_down", "set_volume"):
@@ -96,6 +108,20 @@ class AudioPlugin(ThreadedPlugin):
             else:
                 self.log.warning("no active %s device matching %r", what, arg)
         self.tick()
+
+    def _mute_app(self, action: str, arg: str):
+        app = self._app(arg)
+        try:
+            muted = None if app is None else self.backend.get_app_mute(app)
+            if muted is None:
+                self.log.info("%s %s: not available (app not playing audio?)", action, app or arg)
+                return
+            mute = {"mute": True, "unmute": False}.get(action, not muted)
+            self.backend.set_app_mute(app, mute)
+        except Unsupported as e:
+            self.log.warning("%s %s: %s", action, app, e)
+            return
+        self.log.info("%s %s", "muted" if mute else "unmuted", app)
 
     # -- values ------------------------------------------------------------
     def _app(self, arg) -> str | None:

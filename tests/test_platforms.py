@@ -399,6 +399,7 @@ def test_audio_app_volume_follows_the_focused_app(monkeypatch):
     class Backend(AudioBackend):
         def __init__(self):
             self.levels = {"Discord.exe": 50.0, "game.exe": 80.0}
+            self.muted = {"Discord.exe": False, "game.exe": False}
 
         def get_volume(self, kind): return 50.0
         def set_volume(self, kind, level): pass
@@ -409,6 +410,8 @@ def test_audio_app_volume_follows_the_focused_app(monkeypatch):
         def set_default(self, kind, want): return None
         def get_app_volume(self, app): return self.levels.get(app)
         def set_app_volume(self, app, level): self.levels[app] = level
+        def get_app_mute(self, app): return self.muted.get(app) if app in self.levels else None
+        def set_app_mute(self, app, mute): self.muted[app] = mute
 
     monkeypatch.setattr(audio, "current", lambda: type("P", (), {"audio": lambda self: Backend()})())
     states, deck = {}, SimpleNamespace(focused=None)
@@ -429,6 +432,17 @@ def test_audio_app_volume_follows_the_focused_app(monkeypatch):
     plugin.adjust_value("app_volume", "focused", -10, 0)
     assert plugin.backend.levels == {"Discord.exe": 55, "game.exe": 70}
     assert audio.AudioPlugin.check_value("app_volume", "focused") is None
+
+    plugin.handle("toggle_mute", {"app": "focused"})               # the focused app: the game
+    plugin.handle("toggle_mute", {"app": "Discord.exe"})
+    assert plugin.backend.muted == {"Discord.exe": True, "game.exe": True}
+    plugin.handle("toggle_mute", {"app": "focused"})
+    plugin.handle("mute", {"app": "Discord.exe"})                  # already muted: stays
+    assert plugin.backend.muted == {"Discord.exe": True, "game.exe": False}
+    plugin.handle("toggle_mute", {"app": "nothing.exe"})           # no audio: nothing to do
+    assert audio.AudioPlugin.check_action("toggle_mute", {"app": "focused"}) is None
+    assert "process name" in audio.AudioPlugin.check_action("mute", {"app": ""})
+    assert "{app: <process name>}" in audio.AudioPlugin.check_action("mute", "headphones")
 
 
 def _media_plugin(monkeypatch, reader):
@@ -558,9 +572,11 @@ def test_windows_app_volume_includes_processes_the_app_started():
 
     class Session:
         def __init__(self, process, level):
-            self.Process, self.level = process, level
+            self.Process, self.level, self.muted = process, level, 0
             self.SimpleAudioVolume = SimpleNamespace(GetMasterVolume=lambda: self.level,
-                                                     SetMasterVolume=lambda v, _ctx: setattr(self, "level", v))
+                                                     SetMasterVolume=lambda v, _ctx: setattr(self, "level", v),
+                                                     GetMute=lambda: self.muted,
+                                                     SetMute=lambda m, _ctx: setattr(self, "muted", m))
 
     programs, explorer = r"C:\Program Files", proc(1, "explorer.exe", wa.WINDOWS_DIR)
     teams = proc(2, "ms-teams.exe", programs, explorer)
@@ -574,5 +590,8 @@ def test_windows_app_volume_includes_processes_the_app_started():
     assert audio.get_app_volume("explorer.exe") is None
     audio.set_app_volume("MS-Teams", 30)
     assert (webview.level, spotify.level) == (0.3, 0.9)
+    assert audio.get_app_mute("ms-teams.exe") is False and audio.get_app_mute("explorer.exe") is None
+    audio.set_app_mute("ms-teams.exe", True)
+    assert audio.get_app_mute("ms-teams.exe") is True and audio.get_app_mute("spotify") is False
     assert audio.apps() == ["ms-teams.exe", "msedgewebview2.exe", "Spotify.exe"]
     assert sorted(lookups) == ["Spotify.exe", "msedgewebview2.exe"]

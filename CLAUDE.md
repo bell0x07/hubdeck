@@ -29,7 +29,7 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
 - **`plugins/`:** each plugin declares `actions`, `states` and `values` (adjustable targets via `adjust`/`set`, published through `watch` as `value:<name>:<arg>` states). `adjust` gets the turn's `expo`; plugins compute the new level with `base.adjusted(current, delta, expo)`. Slow plugins subclass `ThreadedPlugin`. Plugin modules must not import heavy dependencies at import time.
   - Plugins whose state names come from the config (`vars`: anything set; `shortcuts`: `outputs`) override `check_state`.
   - `check_config` also runs, with `{}`, for a plugin the config uses without a `plugins.<name>` section, so a missing client ID fails validation.
-  - `audio.app_volume` with `arg: focused` resolves the app through `ctx.deck.focused` (the engine's last non-ignored window) on every read and adjust; the value state stays `value:app_volume:focused`.
+  - `audio.app_volume` with `arg: focused` resolves the app through `ctx.deck.focused` (the engine's last non-ignored window) on every read and adjust; the value state stays `value:app_volume:focused`. `{audio.toggle_mute: {app: ...}}` takes the same names; app mute is `AudioBackend.get_app_mute/set_app_mute` (Windows: each session's `SimpleAudioVolume` mute; elsewhere `Unsupported`).
   - `platforms = ("darwin",)` limits a plugin to some OSes. Configs still load elsewhere, but the editor's `/api/meta` only lists `available()` plugins, so the UI never offers them (Shortcuts is macOS-only, `media` Windows-only).
   - The `media` plugin only has states (`media.playing`, ...); the `{media: play_pause}` short form is `keyboard.media`.
 - **`gui/`:** browser editor.

@@ -59,6 +59,13 @@ class AudioBackend(ABC):
     def set_app_volume(self, app: str, level: float):
         pass
 
+    def get_app_mute(self, app: str) -> bool | None:
+        """Whether every audio session of the app is muted; None when it has no audio right now."""
+        raise Unsupported("muting one app isn't supported on this system")
+
+    def set_app_mute(self, app: str, mute: bool):
+        raise Unsupported("muting one app isn't supported on this system")
+
     def close(self):
         pass
 

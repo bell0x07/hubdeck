@@ -88,7 +88,7 @@ LOGGED_IN = {"access_token": "a1", "refresh_token": "r1", "expires_in": 3600}
 def test_turns_set_spotifys_own_volume(fake, tmp_path):
     p = plugin(tmp_path, {**LOGGED_IN, "obtained_at": time.time()})
     p.tick()
-    assert p.states == {"volume": 40, "device": "DESKTOP", "value:volume:": 40}
+    assert p.states == {"volume": 40, "muted": False, "device": "DESKTOP", "value:volume:": 40}
 
     p.adjust_value("volume", None, 4, 0)
     assert fake.volume == 44 and p.states["volume"] == 44
@@ -204,3 +204,21 @@ def test_login_gives_up_when_stopping(fake, tmp_path, monkeypatch):
     started = time.time()
     p.tick()
     assert not p.api.logged_in and time.time() - started < 2
+
+
+def test_mute_like_spotifys_own_button(fake, tmp_path):
+    p = plugin(tmp_path, {**LOGGED_IN, "obtained_at": time.time()})
+    p.tick()
+    p.handle("toggle_mute", None)
+    assert fake.volume == 0 and p.states["muted"] is True and p.states["volume"] == 0
+    p.handle("mute", None)                                         # already muted: nothing sent
+    assert [c[2]["volume_percent"] for c in fake.calls if c[0] == "PUT"] == ["0"]
+    p.handle("toggle_mute", None)
+    assert fake.volume == 40 and p.states["muted"] is False        # back to where it was
+
+    fake.volume = 0                                                # muted in Spotify itself
+    p.settle_until = p.next_poll = 0
+    p.tick()
+    p.handle("unmute", None)
+    assert fake.volume == 40                                       # the last volume above 0
+    assert SpotifyPlugin.check_action("toggle_mute", 5) == "spotify.toggle_mute takes no argument"
