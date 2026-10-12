@@ -349,6 +349,47 @@ def test_windows_single_instance_frees_the_other_hubdecks_mutex(monkeypatch):
     ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(second._mutex))
 
 
+def test_audio_set_output_and_set_input_switch_the_default_devices(monkeypatch):
+    from hubdeck.platforms import AudioBackend
+    from hubdeck.plugins import audio
+    from hubdeck.plugins.base import PluginContext
+
+    class Backend(AudioBackend):
+        def __init__(self):
+            self.names = {"speakers": ["Speakers (NuForce uDAC5)", "Speakers (JBL Quantum 800 Game)"],
+                          "microphone": ["Microphone (Scarlett 2i2 USB)", "Headset Microphone (JBL Quantum 800 Chat)"]}
+            self.default = {kind: names[0] for kind, names in self.names.items()}
+
+        def get_volume(self, kind): return 50.0
+        def set_volume(self, kind, level): pass
+        def get_mute(self, kind): return False
+        def set_mute(self, kind, mute): pass
+        def default_name(self, kind): return self.default[kind]
+        def devices(self, kind): return self.names[kind]
+
+        def set_default(self, kind, want):
+            for name in self.names[kind]:
+                if want.lower() in name.lower():
+                    self.default[kind] = name
+                    return name
+            return None
+
+    monkeypatch.setattr(audio, "current", lambda: type("P", (), {"audio": lambda self: Backend()})())
+    states = {}
+    plugin = audio.AudioPlugin(PluginContext("audio", lambda p, k, v: states.__setitem__(k, v)), {})
+    plugin.setup()
+    plugin.handle("set_input", "jbl quantum 800 chat")                # any case, part of the name
+    assert states["input"] == "Headset Microphone (JBL Quantum 800 Chat)"
+    assert states["output"] == "Speakers (NuForce uDAC5)"             # the output stays
+    plugin.handle("set_output", "Quantum 800 Game")
+    assert states["output"] == "Speakers (JBL Quantum 800 Game)"
+    assert states["input"] == "Headset Microphone (JBL Quantum 800 Chat)"
+    plugin.handle("set_input", "Yeti")                                # no such device: nothing changes
+    assert states["input"] == "Headset Microphone (JBL Quantum 800 Chat)"
+    assert audio.AudioPlugin.check_action("set_input", "Scarlett") is None
+    assert audio.AudioPlugin.check_action("set_input", None) == "audio.set_input needs (part of) a device name"
+
+
 def _media_plugin(monkeypatch, reader):
     from hubdeck.plugins import media
     from hubdeck.plugins.base import PluginContext

@@ -91,8 +91,8 @@ def _devices() -> list[int]:
     return list(ids)
 
 
-def _is_output(dev: int) -> bool:
-    scope = SCOPES["speakers"]
+def _can_be_default(dev: int, kind: str) -> bool:
+    scope = SCOPES[kind]
     if not _size(dev, _addr(STREAMS, scope)):
         return False
     addr = _addr(CAN_BE_DEFAULT, scope)
@@ -162,18 +162,18 @@ class MacAudio(AudioBackend):
         elif self.get_volume(kind) < 0.5:
             self.set_volume(kind, self._premute.pop(kind, 50))
 
-    def output_name(self) -> str:
-        return _name(self._device("speakers"))
+    def default_name(self, kind: str) -> str:
+        return _name(self._device(kind))
 
-    def outputs(self) -> list[str]:
-        return sorted({_name(d) for d in _devices() if _is_output(d)} - {""}, key=str.lower)
+    def devices(self, kind: str) -> list[str]:
+        return sorted({_name(d) for d in _devices() if _can_be_default(d, kind)} - {""}, key=str.lower)
 
-    def set_output(self, want: str) -> str | None:
-        """Make the first output device whose name contains `want` the default; returns its name."""
+    def set_default(self, kind: str, want: str) -> str | None:
+        """Make the first device whose name contains `want` the default; returns its name."""
         for dev in _devices():
             name = _name(dev)
-            if want.lower() in name.lower() and _is_output(dev):
-                _set(SYSTEM_OBJECT, _addr(DEFAULT_DEVICE["speakers"]), c_uint32(dev))
+            if want.lower() in name.lower() and _can_be_default(dev, kind):
+                _set(SYSTEM_OBJECT, _addr(DEFAULT_DEVICE[kind]), c_uint32(dev))
                 return name
         return None
 

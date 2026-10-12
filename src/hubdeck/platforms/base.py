@@ -37,16 +37,16 @@ class AudioBackend(ABC):
     def set_mute(self, kind: str, mute: bool): ...
 
     @abstractmethod
-    def output_name(self) -> str:
-        """Name of the default playback device."""
+    def default_name(self, kind: str) -> str:
+        """Name of the default device."""
 
     @abstractmethod
-    def outputs(self) -> list[str]:
-        """Names of the playback devices that can be made the default."""
+    def devices(self, kind: str) -> list[str]:
+        """Names of the devices that can be made the default."""
 
     @abstractmethod
-    def set_output(self, want: str) -> str | None:
-        """Make the first output whose name contains `want` (any case) the default; its name, or None."""
+    def set_default(self, kind: str, want: str) -> str | None:
+        """Make the first device whose name contains `want` (any case) the default; its name, or None."""
 
     def apps(self) -> list[str]:
         """Apps whose volume can be read right now (for the editor's picker)."""
