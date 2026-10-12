@@ -1,4 +1,5 @@
-"""Windows: %APPDATA%, a named mutex, ShellExecute, named pipes, pycaw, SendInput, the Run key."""
+"""Windows: %APPDATA%, a named mutex, ShellExecute, named pipes, pycaw, SendInput, the Run key,
+the foreground window."""
 
 from __future__ import annotations
 
@@ -108,6 +109,10 @@ class WindowsPlatform(Platform):
     def keyboard(self):
         from .keyboard import SendInputKeyboard
         return SendInputKeyboard()
+
+    def focus(self):
+        from .focus import WinFocus
+        return WinFocus()
 
     def accent_color(self) -> tuple[int, int, int] | None:
         """The accent colour from Settings > Personalization > Colors. AccentPalette holds 8

@@ -7,7 +7,7 @@ import threading
 
 import pytest
 
-from hubdeck.platforms import Platform, current
+from hubdeck.platforms import Platform, Unsupported, current
 from hubdeck.platforms.keys import KEYS, MEDIA, parse_combo
 from hubdeck.render import faces
 
@@ -65,6 +65,50 @@ def test_base_platform_has_no_accent_and_unsupported_audio():
     assert isinstance(p, Platform) and p.accent_color() is None
     with pytest.raises(OSError):
         p.audio()
+    with pytest.raises(Unsupported):
+        p.focus()
+
+
+def test_focus_watcher_keeps_reading_after_a_failure():
+    from hubdeck.focus import FocusWatcher
+    from hubdeck.platforms import FocusedWindow, FocusReader
+
+    class Reader(FocusReader):
+        reads = 0
+        done = threading.Event()
+
+        def read(self):
+            self.reads += 1
+            if self.reads == 1:
+                raise OSError("no")
+            self.done.set()
+            return FocusedWindow("x.exe", "t")
+
+    reader = Reader()
+    watcher = FocusWatcher(reader, interval=0.001)
+    watcher.start()
+    assert reader.done.wait(5)
+    watcher.stop()
+    assert watcher.current == FocusedWindow("x.exe", "t")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows foreground window")
+def test_windows_focus_reads_the_foreground_window(monkeypatch):
+    from hubdeck.platforms.windows import focus
+
+    reader = current().focus()
+    if not reader.user32.GetForegroundWindow():
+        pytest.skip("no foreground window (locked or no desktop)")
+    window = reader.read()                    # whatever has focus while the tests run
+    assert window is None or (window.app and isinstance(window.title, str))
+    monkeypatch.setattr(reader, "own_pid", reader._pid(reader.user32.GetForegroundWindow()))
+    assert reader.read() is None              # hubdeck's own windows don't count
+    monkeypatch.setattr(reader, "own_pid", -1)
+    monkeypatch.setattr(focus.psutil, "Process", lambda pid: type("P", (), {"name": lambda self: "explorer.exe"})())
+    monkeypatch.setattr(reader, "_class", lambda hwnd: "Shell_TrayWnd")
+    assert reader.read() is None              # the taskbar
+    monkeypatch.setattr(reader, "_class", lambda hwnd: "CabinetWClass")
+    assert reader.read().app == "explorer.exe"   # File Explorer
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file lock")

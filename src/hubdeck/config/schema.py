@@ -231,13 +231,68 @@ def _check_range(v: dict, count: int, what: str):
     return v
 
 
+def app_key(name: str) -> str:
+    """App names compare without case and without .exe/.app, so one config fits Windows and macOS."""
+    return name.strip().lower().removesuffix(".exe").removesuffix(".app")
+
+
+class WindowMatch(_Model):
+    """A window to switch pages for: its app, its title (regex, any case), or both."""
+    app: str | None = None       # process name (X2.exe); macOS: app name or bundle id
+    title: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _app_shorthand(cls, data):
+        return {"app": data} if isinstance(data, str) else data
+
+    @field_validator("title")
+    @classmethod
+    def _regex(cls, v):
+        if v is not None:
+            try:
+                re.compile(v)
+            except re.error as e:
+                raise ValueError(f"title {v!r} is not a valid regular expression: {e}")
+        return v
+
+    @model_validator(mode="after")
+    def _something(self):
+        if not self.app and self.title is None:
+            raise ValueError("needs an 'app', a 'title' or both")
+        return self
+
+    @property
+    def rank(self) -> int:
+        """When several pages match, the most specific wins: app + title, then title, then app."""
+        return 2 if self.app and self.title is not None else 1 if self.title is not None else 0
+
+    def matches(self, window) -> bool:
+        """`window`: a platforms.FocusedWindow. A title it can't read never matches."""
+        if self.app and app_key(self.app) not in {app_key(n) for n in (window.app, *window.aliases)}:
+            return False
+        if self.title is not None:
+            return window.title is not None and re.search(self.title, window.title, re.IGNORECASE) is not None
+        return True
+
+
+def _window_list(v):
+    return [v] if isinstance(v, (str, dict)) else v
+
+
 class Page(_Model):
     keys: dict[int, KeyDef] = {}
     dial: ControlDef | None = None
     knobs: dict[int, ControlDef] = {}
     rollers: dict[int, ControlDef] = {}
     faders: dict[int, FaderDef] = {}
-    match: dict[str, Any] | None = None  # reserved: switch to this page when an app is focused
+    match: list[WindowMatch] = []        # switch to this page when one of these windows has focus
+    sticky: bool = False                 # while it's on screen, focus changes don't switch pages
+
+    @field_validator("match", mode="before")
+    @classmethod
+    def _one_match(cls, v):
+        return _window_list(v)
 
     @field_validator("keys")
     @classmethod
@@ -400,12 +455,33 @@ class Defaults(_Model):
     animation_fps: int = Field(default=30, ge=1, le=60)     # cap for GIF faces
 
 
+class AutoSwitch(_Model):
+    """Switching pages by the focused window (pages' `match`)."""
+    enabled: bool = True
+    ignore: list[WindowMatch] = []       # windows that count as if focus never moved
+    on_focus: list[Action] = []          # run on every change of focused app or title
+
+    @field_validator("ignore", mode="before")
+    @classmethod
+    def _one_ignore(cls, v):
+        return _window_list(v)
+
+    @field_validator("on_focus", mode="before")
+    @classmethod
+    def _actions(cls, v):
+        return parse_actions(v)
+
+    def ignores(self, window) -> bool:
+        return any(m.matches(window) for m in self.ignore)
+
+
 class Config(_Model):
     device: Device = Device()
     modules: Modules = Modules()
     defaults: Defaults = Defaults()
     plugins: dict[str, dict[str, Any]] = {}
     lighting: Lighting = Lighting()
+    auto_switch: AutoSwitch = AutoSwitch()
     start_page: str = "main"
     pages: dict[str, Page] = {}
 
@@ -468,6 +544,18 @@ class Config(_Model):
             for num, fd in page.faders.items():
                 yield f"pages.{page_name}.faders.{num}", fd.target, fd.arg
 
+    def match_page(self, window) -> str | None:
+        """The page whose `match` fits `window` best (most specific, then file order), or None."""
+        best, rank = None, -1
+        for name, page in self.pages.items():
+            for m in page.match:
+                if m.rank > rank and m.matches(window):
+                    best, rank = name, m.rank
+        return best
+
+    def window_matches(self) -> list[WindowMatch]:
+        return [m for p in self.pages.values() for m in p.match] + self.auto_switch.ignore
+
     def section(self, page: str, name: str):
         """A page's dial/knobs/rollers/faders section; inherited from start_page when the page has none."""
         own = getattr(self.pages[page], name)
@@ -500,6 +588,7 @@ class Config(_Model):
     def used_plugins(self) -> set[str]:
         names = set(self.plugins)
         names.update(a.plugin for _, kd in self.iter_defs() for a in kd.all_actions())
+        names.update(a.plugin for a in self.auto_switch.on_focus)
         names.update(p for p, _ in self.state_refs())
         names.update(t.split(".", 1)[0] for _, t, _ in self.iter_targets())
         return names

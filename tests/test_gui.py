@@ -243,3 +243,54 @@ def test_editor_offers_shortcuts_only_on_macos(server, monkeypatch, os_name, off
     plugins = server.api_meta()["plugins"]
     assert ("shortcuts" in plugins) is offered
     assert "vars" in plugins and "audio" in plugins          # everything else stays
+
+
+def test_api_page_settings_and_auto_switch(server, cfg_path):
+    r = call(server, "/api/page-settings", {"page": "other", "raw": {"match": ["X2.exe", {"title": r"\.PcbDoc"}],
+                                                                     "sticky": True}})
+    assert r["ok"]
+    text = cfg_path.read_text(encoding="utf-8")
+    assert text.index("match:") < text.index("1: {action: page.back")       # before the page's controls
+    cfg = load_config(cfg_path)
+    assert [m.app for m in cfg.pages["other"].match] == ["X2.exe", None] and cfg.pages["other"].sticky
+    assert call(server, "/api/page-settings?page=other")["raw"]["sticky"] is True
+    st = call(server, "/api/state")
+    assert st["page_flags"]["other"] == {"match": [{"app": "X2.exe"}, {"title": r"\.PcbDoc"}], "sticky": True}
+    assert st["focus"] is None and st["auto_switch"] is None                 # not live
+    assert call(server, "/api/page-settings", {"page": "other", "raw": {"sticky": False}})["ok"]
+    assert "match:" not in cfg_path.read_text(encoding="utf-8")
+    bad = call(server, "/api/page-settings", {"page": "other", "raw": {"match": [{"title": "("}]}})
+    assert not bad["ok"] and "regular expression" in bad["error"]
+    assert call(server, "/api/global", {"name": "auto_switch", "raw": {"enabled": False, "ignore": ["KeePassXC"],
+                                                                      "on_focus": {"page": "main"}}})["ok"]
+    assert not load_config(cfg_path).auto_switch.enabled
+
+
+def test_page_settings_convert_the_single_page_shorthand(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("keys:\n  1: {action: rec.a}   # keep me\n", encoding="utf-8")
+    doc = ConfigDoc(p)
+    doc.set_page_settings("main", {"sticky": False})
+    assert doc.single_page                                  # nothing to write: stays as it was
+    doc.set_page_settings("main", {"match": ["code"]})
+    assert doc.save() is None and "# keep me" in p.read_text(encoding="utf-8")
+    assert load_config(p).pages["main"].match[0].app == "code"
+
+
+def test_live_state_shows_the_focused_window(cfg_path, recorder):
+    from hubdeck.device.fake import FakeKeyModule
+    from hubdeck.engine import Engine
+    from hubdeck.platforms import FocusedWindow
+    eng = Engine(ConfigSource(cfg_path), factories={"keys": FakeKeyModule})
+    eng.load_initial()
+    eng.focus = FocusedWindow("X2.EXE", "board")
+    eng.recent_windows = [eng.focus]
+    s = GuiServer(ConfigSource(cfg_path), engine=eng, port=0)
+    try:
+        st = s.api_state()
+        assert st["focus"] == {"app": "X2.EXE", "title": "board", "page": None}
+        assert st["recent_windows"] == [{"app": "X2.EXE", "title": "board"}] and st["auto_switch"] is True
+        assert "auto_toggle" in s.api_meta()["plugins"]["page"]["actions"]
+    finally:
+        s.httpd.server_close()
+        eng.shutdown()

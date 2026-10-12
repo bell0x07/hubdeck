@@ -12,7 +12,7 @@ from pathlib import Path
 import pystray
 from PIL import Image, ImageDraw
 
-from . import PROJECT_URL, instance, paths
+from . import PROJECT_URL, focus, instance, paths
 from .config import ConfigError, ConfigSource
 from .engine import Engine
 from .logs import setup_logging
@@ -122,6 +122,9 @@ def main(argv=None):
         pystray.MenuItem("Edit config as text", lambda: _edit(source.path, paths.EXAMPLE_CONFIG)),
         pystray.MenuItem("Edit secrets", lambda: _edit(source.secrets, paths.EXAMPLE_SECRETS)),
         pystray.MenuItem(lambda item: f"Page: {engine.current_page or '-'}", pystray.Menu(pages_menu)),
+        pystray.MenuItem("Switch pages by app", lambda: engine.set_auto_switch(None),
+                         checked=lambda item: engine.auto_switch,
+                         visible=focus.supported()),
         pystray.MenuItem("Reload config", lambda: engine.reload()),
         pystray.MenuItem("Open config folder", lambda: _open(source.path.parent)),
         pystray.MenuItem("Open log", lambda: _open(paths.log_path())),
@@ -142,7 +145,7 @@ def main(argv=None):
             notify(detail[-250:], "hubdeck: config error")
         elif event == "reloaded":
             notify("Config reloaded", "hubdeck")
-        if event in ("page", "reloaded"):
+        if event in ("page", "reloaded", "auto"):
             def refresh():
                 icon.title = f"hubdeck - {engine.current_page}"
                 icon.update_menu()

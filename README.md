@@ -9,7 +9,7 @@ A Stream-Deck-style controller for the whole **Cooler Master MasterHub** family:
 | **3 knobs, 2 rollers, 5 faders** | Volumes (system, microphone, per app) or any action, with knob and fader LEDs that can follow the value. |
 | **Base** | RGB lighting that reacts to state, for example red and breathing while you're muted. |
 
-Actions cover keystrokes, media keys, launching apps, system and per-app audio, and Discord mute/deafen/hold-to-mute. Controls can be grouped into pages. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
+Actions cover keystrokes, media keys, launching apps, system and per-app audio, and Discord mute/deafen/hold-to-mute. Controls can be grouped into pages, which can follow the app you're using. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
 
 It runs on **Windows** and **macOS**. This is an unofficial tool, tested with real hardware on Windows 11 and macOS. The protocol notes, with sources and what's verified, are in [docs/protocol/](docs/protocol/README.md).
 
@@ -53,7 +53,7 @@ hubdeck run      # runs in the foreground (Ctrl+C to quit)
 From source, run them as `.\.venv\Scripts\hubdeck.exe …` on Windows and `.venv/bin/hubdeck …` on macOS, or activate the venv first. The Windows installer puts `hubdeck` on the PATH.
 
 - **Close MasterHUB first, including its background daemon** (Windows). It drives the same modules, so the two would fight over the screens and lights.
-- **For everyday use, run `hubdeck-tray`.** Clicking the tray icon opens the editor (on macOS it opens the menu, where "Open editor" is the first item). The menu can also switch pages, reload, open the log and open this repo.
+- **For everyday use, run `hubdeck-tray`.** Clicking the tray icon opens the editor (on macOS it opens the menu, where "Open editor" is the first item). The menu can also switch pages, turn switching pages by app on and off, reload, open the log and open this repo.
 - **To start at login on Windows,** turn on **Start at login** in the tray menu. It works for the installed app and from source.
 - **To start at login on macOS,** see [macOS](#macos) below.
 
@@ -109,7 +109,7 @@ Running from a source checkout (see [Install](#install)) works too. Permissions 
 ### Differences from Windows
 
 - **Permissions.** macOS asks the first time they're needed, for **hubdeck** (or Terminal/Python when running from source):
-  - **Accessibility** (System Settings › Privacy & Security) for the `keyboard` actions. Without it macOS drops the keystrokes, and hubdeck logs which permission is missing. Restart hubdeck after allowing it.
+  - **Accessibility** (System Settings › Privacy & Security) for the `keyboard` actions, and for reading window titles when [switching pages by app](#switching-pages-by-app). Without it macOS drops the keystrokes, and hubdeck logs which permission is missing. Restart hubdeck after allowing it.
   - **Automation** for per-app volume: macOS asks once whether hubdeck may control the app (e.g. Music). Until you answer, that app's volume is unavailable, but everything else keeps working.
   - The modules themselves need no permission.
 - **Keys:** `cmd` (or `command`, `win`) is the Command key and `option` (or `alt`) is Option. `ctrl+c` sends Control-C, so use `cmd+c` to copy. The Mac has no `menu`, `f21`–`f24` or media `stop` key. macOS ignores the Force Quit shortcut (`cmd+option+esc`) when it doesn't come from a real keyboard; `{open: "Activity Monitor"}` is the nearest alternative.
@@ -183,7 +183,7 @@ The version lives in one place, `__version__` in `src/hubdeck/__init__.py`.
 
 hubdeck has a visual editor that runs in your browser. It's served by hubdeck on `127.0.0.1` only.
 
-- **Open it** by clicking the tray icon ("Open editor"). Opened that way, it shows **live state** and which page is on the device. Without the tray, `hubdeck gui` opens it on its own.
+- **Open it** by clicking the tray icon ("Open editor"). Opened that way, it shows **live state**, which page is on the device and which window has focus. Without the tray, `hubdeck gui` opens it on its own.
 - **Your device is drawn as it sits on the desk.** The Base grid is horizontal 6×4 or vertical 4×6. Modules sit where you drag them, rotated as mounted (↻ on each module), with every control numbered in reading order.
 - **Click any control to edit it:**
   - face (icon search, label, colours, image/GIF), with a live preview rendered exactly like the device
@@ -192,7 +192,7 @@ hubdeck has a visual editor that runs in your browser. It's served by hubdeck on
   - turning (a value target or actions)
   - fader targets
 - **Every item also has a YAML tab** for anything the form doesn't cover.
-- **Global settings:** pages (add, rename, delete, start page), **Lighting**, **Device & modules** (base orientation, mounting, backlight) and the whole file as **YAML**.
+- **Global settings:** pages (add, rename, delete, start page, **Switch by app…** with a list of recently focused windows to pick from), **Lighting**, **Auto-switch**, **Device & modules** (base orientation, mounting, backlight) and the whole file as **YAML**.
 - **Saving checks the whole config first.** An invalid change is shown and never written.
 - **Your comments and hand-aligned spacing in `config.yaml` are kept;** only the lines you changed are rewritten.
 - **A running hubdeck applies saved changes immediately.**
@@ -293,6 +293,56 @@ These share the same fields.
 - **State:** `state: plugin.state` uses `face_on` while the value is true and `face_unknown` while it's unknown, for example when Discord is closed. Fields you don't set in the overlay are taken from `face`.
 - **Pages:** each page can have its own `dial`, `knobs`, `rollers` and `faders` sections. A page without one uses the start page's section.
 
+### Switching pages by app
+
+A page can come up by itself when an app has focus, on Windows and macOS:
+
+```yaml
+auto_switch:                     # optional
+  enabled: true                  # false: off until a key turns it on
+  ignore:                        # windows that count as if focus never moved
+    - KeePassXC.exe
+    - {app: X2.exe, title: '^Preferences'}
+  on_focus: {python: "log.info('now in %s', deck.focused.app)"}
+
+pages:
+  altium:
+    match: X2.exe                # Altium Designer
+  altium-pcb:
+    match: [{app: X2.exe, title: '\.PcbDoc'}]
+  youtube:
+    match: [{title: YouTube}]    # any app whose window title contains it
+  call:
+    sticky: true                 # while it's on screen, focus changes don't switch pages
+```
+
+- **Matching:**
+  - `app` is the program name: `X2.exe`, with or without `.exe`, in any case. On macOS it's the app's name as in the Dock (`Safari`), its bundle id (`com.apple.Safari`) or its executable. Windows names like `code.exe` work on macOS too.
+  - `title` is a regular expression searched in the window title, in any case.
+  - An entry has either or both. A plain string is an app.
+- **The most specific match wins:** app + title beats title alone, which beats app alone. Ties go to the page listed first.
+- **When it switches:** once a window has kept focus for about 0.3 s, so Alt+Tab passes by without switching. It switches only when the page the focus matches changes. A new title that matches the same page leaves you on whatever page you went to from there.
+- **Your pages come back:**
+  - Switching to an app's page replaces the pages you had open.
+  - Pages you open from there (`goto`) belong to the app.
+  - When an app without a page gets focus, the pages you had open before come back.
+  - Pages you open yourself while an app without a page has focus (a key, the tray, `home`) stay.
+- **Ignored windows** count as if focus never moved: the `ignore` entries, plus the system's own surfaces:
+  - **Windows:** the taskbar, desktop, Alt+Tab, Start, search, notifications, the lock screen, UAC prompts and hubdeck itself
+  - **macOS:** the Dock, Control Centre, Notification Centre, the lock screen, menu-bar apps and hubdeck itself
+- **Sticky pages** stay while they're on screen. Leaving one doesn't switch right away; the next change of matching page does.
+- **Turning it off and on:** `page.auto_off`, `page.auto_on` and `page.auto_toggle` (from a key or `hubdeck send`), `deck.auto_switch` in Python, or the tray menu.
+  - This lasts until hubdeck restarts or `auto_switch.enabled` changes in the config.
+  - Turning it on switches to the focused app's page right away.
+  - `state: page.auto` shows it on a key.
+- **Finding the names:**
+  - `{page.app}` and `{page.title}` show the focused window on a key, and `hubdeck send get page.app` prints it.
+  - The log has a line for every app change.
+  - The editor's **Switch by app…** lists the windows you used recently.
+- **`on_focus`** actions run on every change of focused app or title, except for ignored windows. They also run while switching is off or a sticky page is shown.
+- **Config changes** don't switch pages by themselves. New `match` entries apply from the next focus change.
+- **Permissions:** macOS needs the Accessibility permission to read window titles; without it, entries with a `title` don't match. Other systems aren't supported yet: `match` loads there but does nothing.
+
 ### Faces (keys and the Dial)
 
 - **Fields:** `icon` (a Tabler name; `filled: true` uses the filled style), `label`, `text`, `bg`, `fg` (icon colour), `label_color` and `font_size`.
@@ -352,7 +402,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 
 | plugin | actions | states | values (turn/fader targets) |
 | --- | --- | --- | --- |
-| `page` | `goto` (`{page: name}`), `back`, `home` | none | none |
+| `page` | `goto` (`{page: name}`), `back`, `home`, `auto_on`, `auto_off`, `auto_toggle` ([switching by app](#switching-pages-by-app)) | `auto`, `app`, `title` (the focused window) | none |
 | `keyboard` | `keys`, `key_down`, `key_up`, `media`, `type` (`cmd`/`win` is Command on macOS) | none | none |
 | `launch` | `open` (file, folder, app or URL; on macOS also an app name), `run` (shell command) | none | none |
 | `python` | `exec` (`{python: code}`) | none | none |
@@ -424,6 +474,8 @@ On `deck` itself:
 | `deck.clear_faces(page=None)` | go back to the config's faces for every key and the Dial on a page |
 | `deck.page`, `deck.pages` | the page on screen, and the names of all pages |
 | `deck.goto(page)`, `deck.back()`, `deck.home()` | switch pages, like the `page` actions |
+| `deck.auto_switch` | whether pages switch by app; set it to `True` or `False` like `page.auto_on`/`auto_off` |
+| `deck.focused` | the focused window as `(app, title)`, also `.app` and `.title`; `None` until hubdeck has seen one |
 | `deck.run(action, arg=None)` | run any action, written as in the config: `deck.run("discord.toggle_mute")`, `deck.run("keys", "ctrl+c")`, `deck.run({"audio.set_volume": 30})` or a list |
 | `deck.state(name, default=None)`, `deck.states` | read state values, e.g. `deck.state("audio.volume")` |
 | `deck.set_var(name, value)` | set `vars.<name>`, like `{vars.set: ...}` or `hubdeck send set`: faces show it as `{vars.name}`, and `state: vars.name` switches on it |

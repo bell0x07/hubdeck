@@ -22,7 +22,8 @@ from ..config import ConfigError, load_config
 from .. import paths
 
 SECTIONS = ("keys", "dial", "knobs", "rollers", "faders")
-GLOBALS = ("device", "modules", "defaults", "lighting")
+GLOBALS = ("device", "modules", "defaults", "lighting", "auto_switch")
+PAGE_SETTINGS = ("match", "sticky")      # a page's own settings, besides its controls
 
 
 def _yaml() -> YAML:
@@ -268,6 +269,29 @@ class ConfigDoc:
             self.data.insert(keys.index(anchor) if anchor else len(keys), name, value)
 
     # -- pages -------------------------------------------------------------
+    def get_page_settings(self, page: str) -> dict:
+        node = self.page_node(page) or {}
+        return {k: node[k] for k in PAGE_SETTINGS if k in node}
+
+    def set_page_settings(self, page: str, settings: dict):
+        """A page's match/sticky (plain values); empty ones are removed. They go before the
+        page's controls."""
+        node = self.page_node(page, create=True)
+        for pos, key in enumerate(PAGE_SETTINGS):
+            value = settings.get(key)
+            if value in (None, False, [], {}):
+                if node is not self.data or key in node:
+                    node.pop(key, None)
+                continue
+            if node is self.data:              # the single-page shorthand has no page settings
+                self.to_pages()
+                node = self.page_node(page, create=True)
+            if key in node:
+                if to_plain(node[key]) != value:     # unchanged: keep its style and comments
+                    node[key] = from_plain(value)
+            else:
+                node.insert(min(pos, len(node)), key, from_plain(value))
+
     def add_page(self, name: str):
         self.page_node(name, create=True)
 
