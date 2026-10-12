@@ -11,7 +11,8 @@ from datetime import date, datetime
 from typing import Any, Callable
 
 from .config import Config, ConfigError, ConfigSource, KeyDef
-from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef
+from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef, FaderDef, LightZone
+from .deck import Deck
 from .device import DeviceError
 from .device.manager import RETRY_SECONDS, DeviceManager, present_kinds
 from .device import layout
@@ -20,7 +21,7 @@ from .gestures import GestureTracker
 from .lighting import LightingController
 from .plugins import REGISTRY, Plugin, PluginContext
 from .plugins.base import value_state
-from .render.images import ImageStore
+from .render.images import ImageStore, LoadedImage
 from . import paths
 from .render.faces import BLANK, RenderFace, accent_color, parse_color, render
 
@@ -32,6 +33,8 @@ PRESSABLE = {"keys": 15, "dial": 1, "knobs": 3}   # modules whose controls have 
 SCREENS = ("keys", "dial")
 TAKEOVER_WINDOW = 4                               # faders pick up the value within +/- this
 FADER_ECHO_SECONDS = 1.0                          # a target value this recent from the fader is its own echo
+Control = tuple[str, int]                         # (module, config number), e.g. ("knobs", 2); dial, base: 1
+Source = tuple[str, str, int]                     # (page, module, number) an action comes from
 
 
 LINE_FMT = re.compile(r"line(\d+)")
@@ -71,11 +74,18 @@ class Engine:
         self._plugin_cfgs: dict[str, dict] = {}
         self.state: dict[str, Any] = {}
         self._state_q: queue.Queue[tuple[str, str, Any]] = queue.Queue()
-        self._commands: queue.Queue[tuple] = queue.Queue()
+        self._commands: queue.Queue[tuple[Callable, tuple]] = queue.Queue()
         self.page_stack: list[str] = []
         self.gestures = {kind: GestureTracker(n) for kind, n in PRESSABLE.items()}
-        self._active: dict[tuple[str, int], KeyDef | None] = {}   # press cycle -> def it started on
+        # press cycle -> (page, def) it started on
+        self._active: dict[tuple[str, int], tuple[str, KeyDef | None]] = {}
         self._owned: set[int] = set()                             # 1-based key numbers
+        # set at runtime (deck); controls are (module, config number)
+        self.overrides: dict[str, dict[Control, dict[str, Any]]] = {}   # page -> screen -> face fields
+        self.light_overrides: dict[Control, dict[str, Any]] = {}       # LED -> lighting fields
+        self.brightness: dict[str, int] = {}                           # screen -> backlight
+        self.firing: Source | None = None            # where the action being invoked comes from
+        self._on_demand: set[str] = set()            # plugins started by deck.run, kept across reloads
         self.shown: dict[tuple[str, int], bytes] = {}
         self._jpeg_cache: dict[tuple, bytes] = {}
         self._fader_caught: dict[int, bool] = {}
@@ -93,6 +103,7 @@ class Engine:
         self._reassert_at = 0.0
         self._stop = threading.Event()
         self.listeners: list[Callable[[str, str], None]] = []  # (event, detail): page / error / reloaded / device / quit
+        self.deck = Deck(self)
 
     # -- public API (thread-safe) -----------------------------------------
     @property
@@ -108,19 +119,89 @@ class Engine:
         """The key module, if connected."""
         return self.manager.devices.get("keys")
 
+    def call(self, fn: Callable, *args):
+        """Run fn(*args) on the engine thread at the start of the next step."""
+        self._commands.put((fn, args))
+
     def goto_page(self, name: str):
-        self._commands.put(("goto", name))
+        self.call(self._goto, name)
+
+    def back(self):
+        self.call(self._back)
+
+    def home(self):
+        self.call(self._home)
 
     def reload(self):
-        self._commands.put(("reload",))
+        self.call(self._try_reload)
 
-    def run_action(self, action: Action):
-        """Run an action on the engine thread (from any thread, e.g. the control channel)."""
-        self._commands.put(("action", action))
+    def run_action(self, action: Action, source: Source | None = None, start: bool = False):
+        """Run an action on the engine thread (from any thread, e.g. the control channel).
+        `source` is the (page, module, number) it counts as coming from; start=True also starts
+        a plugin the config doesn't use."""
+        self.call(self._invoke, action, source, start)
 
-    def check_runnable(self, action: Action) -> str | None:
+    def press(self, page: str, control: Control, gesture: str = "press"):
+        """Run the actions the config gives a control on `page` for `gesture`."""
+        self.call(self._press, page, control, gesture)
+
+    def turn(self, page: str, control: Control, steps: int):
+        """Act as if a dial/knob/roller on `page` was turned `steps` clicks (+ = clockwise/up)."""
+        self.call(self._turn_at, page, control, steps)
+
+    def move_fader(self, page: str, number: int, value: float):
+        """Set what fader `number` controls on `page` to `value` (0-100), as if moved there."""
+        self.call(self._move_fader, page, number, value)
+
+    def set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None):
+        """Merge `fields` into the runtime face of a key or the dial (None values reset to the
+        config's); fields=None removes it (control=None: every screen on the page)."""
+        self.call(self._set_face, page, control, fields)
+
+    def set_light(self, control: Control, fields: dict[str, Any] | None):
+        """Merge `fields` into the runtime lighting of an LED (None values reset to the config's);
+        fields=None removes it."""
+        self.call(self._set_light, control, fields)
+
+    # reads: single lookups, safe from any thread
+    def def_on(self, page: str, control: Control):
+        """The config's definition of a control on `page` (dial/knobs/rollers/faders are
+        inherited from start_page when the page has none)."""
+        kind, number = control
+        if kind == "keys":
+            return self.cfg.pages[page].keys.get(number)
+        if kind == "dial":
+            return self.cfg.section(page, "dial")
+        return self.cfg.section(page, kind).get(number)
+
+    def is_held(self, control: Control) -> bool:
+        kind, number = control
+        rot = self.cfg.modules.rotate(kind) if self.cfg else 0
+        return self.gestures[kind].keys[layout.index_of(kind, number, rot)].down
+
+    def control_value(self, page: str, control: Control) -> Any:
+        """Current value (0-100) of what a dial/knob/roller turn or a fader controls on `page`."""
+        d = self.def_on(page, control)
+        if isinstance(d, FaderDef):
+            p, n = d.target.split(".", 1)
+            return self.state.get(f"{p}.{value_state(n, d.arg)}")
+        return self.target_value(d)
+
+    def fader_position(self, number: int) -> int | None:
+        """Where fader `number` sits (0-100, up/right = 100), once it has reported."""
+        rot = self.cfg.modules.rotate("faders") if self.cfg else 0
+        return self._fader_last.get(layout.index_of("faders", number, rot))
+
+    def set_brightness(self, kind: str, percent: int):
+        self.call(self._set_brightness, kind, percent)
+
+    def emit_state(self, plugin: str, key: str, value: Any):
+        self._state_q.put((plugin, key, value))
+
+    def check_runnable(self, action: Action, start: bool = False) -> str | None:
         """Why `action` can't run now, or None. For actions that don't come from the config
-        (hubdeck send), which the loader hasn't checked."""
+        (hubdeck send, deck.run), which the loader hasn't checked. start=True: a plugin the
+        config doesn't use is fine, it will be started."""
         from .plugins import REGISTRY
         plugin = REGISTRY.get(action.plugin)
         if plugin is None:
@@ -133,7 +214,10 @@ class Engine:
             if action.name == "goto" and (self.cfg is None or action.arg not in self.cfg.pages):
                 return f"no page named {action.arg!r}"
         elif action.plugin not in self.plugins:
-            return f"{action.plugin} isn't running: nothing in the config uses it yet"
+            if not start:
+                return f"{action.plugin} isn't running: nothing in the config uses it yet"
+            if not plugin.available():
+                return f"{action.plugin} doesn't work on this system"
         return None
 
     def stop(self):
@@ -222,15 +306,13 @@ class Engine:
     def _handle_commands(self):
         while True:
             try:
-                cmd = self._commands.get_nowait()
+                fn, args = self._commands.get_nowait()
             except queue.Empty:
                 return
-            if cmd[0] == "goto" and self.cfg and cmd[1] in self.cfg.pages:
-                self._set_pages(self.page_stack + [cmd[1]] if cmd[1] != self.current_page else self.page_stack)
-            elif cmd[0] == "reload":
-                self._try_reload()
-            elif cmd[0] == "action" and self.cfg:
-                self._invoke(cmd[1])
+            try:
+                fn(*args)
+            except Exception:
+                log.exception("%s failed", getattr(fn, "__name__", fn))
 
     # -- config ------------------------------------------------------------
     def _try_reload(self):
@@ -248,7 +330,7 @@ class Engine:
         old = self.cfg
         self.cfg = cfg
         # plugins: restart only the ones whose settings changed
-        wanted = {n: cfg.plugins.get(n, {}) for n in cfg.used_plugins() if n != "page"}
+        wanted = {n: cfg.plugins.get(n, {}) for n in cfg.used_plugins() | self._on_demand if n != "page"}
         for name in list(self.plugins):
             if name not in wanted or self._plugin_cfgs.get(name) != wanted[name]:
                 self._stop_plugin(name)
@@ -256,31 +338,24 @@ class Engine:
             if name not in self.plugins:
                 self._start_plugin(name, settings)
         self._watch_targets()
-        # lighting zones are numbered like the controls; convert to module LED indexes
-        self._light_zones = [(kind, 0 if kind == "base" else layout.index_of(kind, i + 1, cfg.modules.rotate(kind)), z)
-                             for kind, i, z in cfg.lighting.zones()]
+        self._update_light_zones()
         self.lighting.forget()
         self.images.forget()
         self._jpeg_cache.clear()
         for name, page in cfg.pages.items():
             if page.match:
                 log.warning("pages.%s.match: app-based page switching is not implemented yet; ignored", name)
-        # keys we stop owning get blanked once
-        new_owned = cfg.owned_keys() if "keys" in cfg.used_modules() else set()
-        if self.device and old is not None:
-            for num in self._owned - new_owned:
-                idx = layout.index_of("keys", num, old.modules.keys.rotate)
-                self._write("keys", idx, BLANK, force=True)
-                self.shown.pop(("keys", idx), None)
-        self._owned = new_owned
+        self.overrides = {p: keys for p, keys in self.overrides.items() if p in cfg.pages}
+        self._update_owned(old.modules.keys.rotate if old is not None else None)
         # modules: open what the config uses, release the rest (MasterHUB may have them)
-        self.manager.wanted = cfg.used_modules()
+        self.manager.wanted = cfg.used_modules() | self._runtime_modules()
         for kind in list(self.manager.devices):
             if kind not in self.manager.wanted:
                 self.manager.drop(kind)
         stack = [p for p in self.page_stack if p in cfg.pages] or [cfg.start_page]
         if old is None or (old.modules.keys.brightness, old.modules.dial.brightness) != \
                 (cfg.modules.keys.brightness, cfg.modules.dial.brightness):
+            self.brightness.clear()       # the config's new levels win over deck.set_brightness
             self._apply_brightness()
         if old is not None and old.modules != cfg.modules:
             self._jpeg_cache.clear()
@@ -302,7 +377,7 @@ class Engine:
     def _start_plugin(self, name: str, settings: dict):
         cls = REGISTRY[name]
         try:
-            plugin = cls(PluginContext(name, self._emit_state), settings)
+            plugin = cls(PluginContext(name, self.emit_state, self.deck), settings)
             plugin.start()
         except Exception as e:
             log.exception("plugin %s failed to start", name)
@@ -323,7 +398,60 @@ class Engine:
             del self.state[k]
         self._dirty = True
 
+    def _update_owned(self, rotate: int | None = None):
+        """Keys hubdeck paints: the config's, plus any with a runtime face. Keys it stops
+        owning get blanked once (`rotate`: the numbering they were painted with)."""
+        owned = self.cfg.owned_keys() if "keys" in self.cfg.used_modules() else set()
+        owned |= {num for faces in self.overrides.values() for kind, num in faces if kind == "keys"}
+        if self.device:
+            rot = self.cfg.modules.keys.rotate if rotate is None else rotate
+            for num in self._owned - owned:
+                idx = layout.index_of("keys", num, rot)
+                self._write("keys", idx, BLANK, force=True)
+                self.shown.pop(("keys", idx), None)
+        self._owned = owned
+
+    def _runtime_modules(self) -> set[str]:
+        """Modules runtime faces and lighting need open, even if the config doesn't use them."""
+        kinds = {kind for kind, _ in self.light_overrides}
+        kinds.update(kind for faces in self.overrides.values() for kind, _ in faces)
+        return kinds
+
+    def _open_runtime_modules(self):
+        """Open modules the runtime faces/lighting newly need now, not at the next periodic scan."""
+        new = self._runtime_modules() - self.manager.wanted
+        if new:
+            self.manager.wanted |= new
+            now = self.clock()
+            for kind in self.manager.scan(now, force=True):
+                self._init_module(kind, now)
+
+    def _update_light_zones(self):
+        """The config's lighting with runtime changes on top, as (module, LED index, zone)."""
+        zones = {(kind, i + 1): zone for kind, i, zone in self.cfg.lighting.zones()}
+        for control, fields in self.light_overrides.items():
+            base = zones.get(control)
+            try:
+                zones[control] = LightZone.model_validate(
+                    {**(base.model_dump(exclude_unset=True) if base else {}), **fields})
+            except ValueError as e:
+                log.warning("lighting %s %d: %s", *control, e)
+        # lighting zones are numbered like the controls; convert to module LED indexes
+        self._light_zones = [(kind, 0 if kind == "base" else layout.index_of(kind, num, self.cfg.modules.rotate(kind)), z)
+                             for (kind, num), z in zones.items()]
+
     # -- pages -------------------------------------------------------------
+    def _goto(self, name: str):
+        if self.cfg and name in self.cfg.pages and name != self.current_page:
+            self._set_pages(self.page_stack + [name])
+
+    def _back(self):
+        if len(self.page_stack) > 1:
+            self._set_pages(self.page_stack[:-1])
+
+    def _home(self):
+        self._set_pages([self.cfg.start_page])
+
     def def_for(self, kind: str, index: int):
         """The definition behind a control on the current page. `index` is the module's own
         0-based index; config numbers follow the mounted orientation (device/layout.py)."""
@@ -366,21 +494,34 @@ class Engine:
 
     def _fire(self, kind: str, idx: int, event: str):
         if event == "down":
-            self._active[(kind, idx)] = self.def_for(kind, idx)
-        kd = self._active.get((kind, idx))
+            self._active[(kind, idx)] = (self.current_page, self.def_for(kind, idx))
+        page, kd = self._active.get((kind, idx), (None, None))
         if kd is None:
             return
+        source = (page, kind, layout.number_of(kind, idx, self.cfg.modules.rotate(kind)))
         for action in kd.actions(event):
-            self._invoke(action)
+            self._invoke(action, source)
+
+    def _press(self, page: str, control: Control, gesture: str):
+        kd = self.def_on(page, control) if page in self.cfg.pages else None
+        for action in kd.actions(gesture) if kd else []:
+            self._invoke(action, (page, *control))
 
     def _turn(self, kind: str, idx: int, steps: int):
-        log.debug("%s %d turned %+d", kind, layout.number_of(kind, idx, self.cfg.modules.rotate(kind)), steps)
-        cd = self.def_for(kind, idx)
+        number = layout.number_of(kind, idx, self.cfg.modules.rotate(kind))
+        log.debug("%s %d turned %+d", kind, number, steps)
+        if kind == "rollers":           # rolling direction follows the mounting
+            steps *= layout.axis_sign(self.cfg.modules.rotate(kind))
+        self._turn_def(self.def_for(kind, idx), steps, (self.current_page, kind, number))
+
+    def _turn_at(self, page: str, control: Control, steps: int):
+        if page in self.cfg.pages:
+            self._turn_def(self.def_on(page, control), steps, (page, *control))
+
+    def _turn_def(self, cd, steps: int, source: Source):
         if not isinstance(cd, ControlDef) or cd.turn is None:
             return
         t = cd.turn
-        if kind == "rollers":           # rolling direction follows the mounting
-            steps *= layout.axis_sign(self.cfg.modules.rotate(kind))
         if t.invert:
             steps = -steps
         if t.target:
@@ -395,7 +536,20 @@ class Engine:
             return
         for _ in range(abs(steps)):
             for action in (t.cw if steps > 0 else t.ccw):
-                self._invoke(action)
+                self._invoke(action, source)
+
+    def _move_fader(self, page: str, number: int, value: float):
+        fd = self.def_on(page, ("faders", number)) if page in self.cfg.pages else None
+        if fd is None:
+            return
+        p, n = fd.target.split(".", 1)
+        plugin = self.plugins.get(p)
+        if plugin is None:
+            return
+        try:
+            plugin.set(n, fd.arg, value)   # not the fader's own echo: soft takeover lets go of it
+        except Exception as e:
+            log.error("%s: set failed: %s", fd.target, e)
 
     def _slide(self, kind: str, idx: int, value: int):
         fd = self.def_for(kind, idx)
@@ -452,29 +606,35 @@ class Engine:
             self._fader_sent.pop(idx, None)
             log.info("fader %d released: %s changed to %s elsewhere", idx + 1, fd.target, value)
 
-    def _invoke(self, action: Action):
+    def _invoke(self, action: Action, source: Source | None = None, start: bool = False):
+        if self.cfg is None:
+            return
         log.debug("action %s", action)
         if action.plugin == "page":
             if action.name == "goto":
                 self.goto_page(action.arg)
-            elif action.name == "back" and len(self.page_stack) > 1:
-                self._set_pages(self.page_stack[:-1])
+            elif action.name == "back":
+                self._back()
             elif action.name == "home":
-                self._set_pages([self.cfg.start_page])
+                self._home()
             return
         plugin = self.plugins.get(action.plugin)
+        if plugin is None and start:
+            self._on_demand.add(action.plugin)
+            self._start_plugin(action.plugin, self.cfg.plugins.get(action.plugin, {}))
+            plugin = self.plugins.get(action.plugin)
         if plugin is None:
             log.warning("%s: plugin %s is not running", action, action.plugin)
             return
+        self.firing = source
         try:
             plugin.invoke(action.name, action.arg)
         except Exception as e:
             log.error("%s failed: %s", action, e)
+        finally:
+            self.firing = None
 
     # -- state -------------------------------------------------------------
-    def _emit_state(self, plugin: str, key: str, value: Any):
-        self._state_q.put((plugin, key, value))
-
     def _drain_states(self):
         while True:
             try:
@@ -503,16 +663,69 @@ class Engine:
             return self.state.get(f"{p}.{value_state(n, kd.turn.arg)}")
         return None
 
-    def face_for(self, kd: KeyDef | None) -> RenderFace:
-        if kd is None:
+    def _set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None):
+        if page not in self.cfg.pages:
+            return
+        faces = self.overrides.setdefault(page, {})
+        if fields is not None:
+            if isinstance(fields.get("image"), LoadedImage):     # a picture made in code
+                fields = {**fields, "image": self.images.put(fields["image"])}
+            merged = {k: v for k, v in {**faces.get(control, {}), **fields}.items() if v is not None}
+            if merged:
+                faces[control] = merged
+            else:
+                faces.pop(control, None)
+        elif control is None:
+            faces.clear()
+        else:
+            faces.pop(control, None)
+        if not faces:
+            del self.overrides[page]
+        self.images.keep_memory({f["image"] for faces in self.overrides.values() for f in faces.values()
+                                 if "image" in f})
+        self._update_owned()
+        self._open_runtime_modules()
+        self._dirty = True
+
+    def _set_light(self, control: Control, fields: dict[str, Any] | None):
+        merged = {k: v for k, v in {**self.light_overrides.get(control, {}), **(fields or {})}.items()
+                  if v is not None}
+        if fields is not None and merged:
+            self.light_overrides[control] = merged
+        elif self.light_overrides.pop(control, None) is not None:
+            self._light_off(control)
+        self._update_light_zones()
+        self._open_runtime_modules()
+        self._dirty = True
+
+    def _light_off(self, control: Control):
+        """Turn off an LED that only runtime lighting lit (like keys, it's handed back blank)."""
+        kind, number = control
+        if any((k, i + 1) == control for k, i, _ in self.cfg.lighting.zones()):
+            return                         # the config lights it: it goes back to that
+        idx = 0 if kind == "base" else layout.index_of(kind, number, self.cfg.modules.rotate(kind))
+        self.lighting.written.pop((kind, idx), None)
+        dev = self.manager.devices.get(kind)
+        if dev is not None:
+            try:
+                dev.set_led_mode(idx, "off")
+            except DeviceError as e:
+                log.warning("%s lighting write failed: %s", kind, e)
+
+    def face_for(self, kd: KeyDef | None, override: dict[str, Any] | None = None) -> RenderFace:
+        """The face for a definition, with `override` (fields set at runtime) on top."""
+        if kd is None and override is None:
             return BLANK
         merged = self.cfg.defaults.style.model_dump(exclude_none=True)
-        merged.update(kd.face.model_dump(exclude_unset=True))
-        if kd.state:
-            value = self.state.get(kd.state)
-            overlay = kd.face_unknown if value is None else kd.face_on if value else None
-            if overlay is not None:
-                merged.update(overlay.model_dump(exclude_unset=True))
+        if kd is not None:
+            merged.update(kd.face.model_dump(exclude_unset=True))
+            if kd.state:
+                value = self.state.get(kd.state)
+                overlay = kd.face_unknown if value is None else kd.face_on if value else None
+                if overlay is not None:
+                    merged.update(overlay.model_dump(exclude_unset=True))
+        if override is not None:
+            merged.update(override)
         value = self.target_value(kd)
         gauge = merged.get("gauge", False)
         image, frame = merged.get("image"), 0
@@ -543,9 +756,14 @@ class Engine:
             frame=frame,
         )
 
-    def resolve_face(self, num: int) -> RenderFace:
-        """Face of key `num` (1-based) on the current page."""
-        return self.face_for(self.cfg.pages[self.current_page].keys.get(num))
+    def screen_face(self, control: Control, page: str | None = None) -> RenderFace:
+        """Face of a key or the dial on `page` (default: the one on screen)."""
+        page = page or self.current_page
+        return self.face_for(self.def_on(page, control), self.overrides.get(page, {}).get(control))
+
+    def resolve_face(self, num: int, page: str | None = None) -> RenderFace:
+        """Face of key `num` (1-based) on `page` (default: the one on screen)."""
+        return self.screen_face(("keys", num), page)
 
     def _encode(self, kind: str, face: RenderFace) -> bytes:
         dev = self.manager.devices[kind]
@@ -581,7 +799,7 @@ class Engine:
                     for num in sorted(self._owned):
                         self._write(kind, layout.index_of(kind, num, rot), self.resolve_face(num), self._force)
                 else:
-                    self._write(kind, 0, self.face_for(self.def_for("dial", 0)), self._force)
+                    self._write(kind, 0, self.screen_face(("dial", 1)), self._force)
             except DeviceError as e:
                 self.manager.drop(kind)
                 self._module_lost(kind, str(e), now)
@@ -615,8 +833,13 @@ class Engine:
                 return self.state.get(f"{p}.{value_state(n, fd.arg)}")
         return None
 
+    def _set_brightness(self, kind: str, percent: int):
+        self.brightness[kind] = percent
+        self._apply_brightness(kind)
+
     def _apply_brightness(self, only: str | None = None):
         levels = {"keys": self.cfg.modules.keys.brightness, "dial": self.cfg.modules.dial.brightness}
+        levels.update(self.brightness)
         for kind, level in levels.items():
             dev = self.manager.devices.get(kind)
             if dev is None or level is None or (only and kind != only):

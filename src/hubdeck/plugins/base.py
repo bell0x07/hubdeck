@@ -14,13 +14,17 @@ import logging
 import queue
 import sys
 import threading
-from typing import Any, Callable, ClassVar
+from typing import TYPE_CHECKING, Any, Callable, ClassVar
+
+if TYPE_CHECKING:
+    from ..deck import Deck
 
 
 class PluginContext:
-    def __init__(self, name: str, emit: Callable[[str, str, Any], None]):
+    def __init__(self, name: str, emit: Callable[[str, str, Any], None], deck: Deck | None = None):
         self.name = name
         self._emit = emit
+        self.deck = deck  # thread-safe control of the running engine
         self.log = logging.getLogger(f"hubdeck.{name}")
 
     def set_state(self, key: str, value: Any):

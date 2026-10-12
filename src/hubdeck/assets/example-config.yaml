@@ -60,6 +60,29 @@ pages:
         state: audio.mic_muted
         face:    {icon: microphone, label: MIC}
         face_on: {icon: microphone-off, label: MUTED, bg: "#c81e28", fg: white}
+      # Python code; `deck` reaches every module (see README). Key 7 counts presses and shows the
+      # count on key 8, the Dial and every LED, and logs what the knobs, faders and rollers report.
+      # It takes those modules over from MasterHUB; ones you don't have are skipped. Key 8 resets.
+      7:
+        action:
+          python: |
+            count = globals().get("count", 0) + 1
+            color = "#c81e28" if count % 2 else "#3cc86e"
+            deck.set_face(8, text=str(count), bg=color)            # another key
+            deck.dial.set_face(text=str(count), label="presses")   # the Dial's round screen
+            for led in [deck.base, *deck.knobs, *deck.faders]:     # every LED
+                led.set_light(color=color)
+            log.info("count %d - knob 1 held: %s, fader 1 at: %s, roller 2 value: %s", count,
+                     deck.knobs[1].held, deck.faders[1].position, deck.rollers[2].value())
+        face: {icon: plus, label: Count}
+      8:
+        action:
+          python: |
+            count = 0
+            deck.clear_faces()                                     # key 8 and the Dial
+            for led in [deck.base, *deck.knobs, *deck.faders]:
+                led.clear_light()                                  # back to the config's lighting, or off
+        face: {text: "0", label: Total}
 
       # Discord (needs the plugins.discord section above):
       # 11:
@@ -76,7 +99,7 @@ pages:
       #   face_on: {icon: microphone-off, label: HELD, bg: "#c81e28", fg: white}
 
       # Pictures and animated GIFs (file next to this config, or an http(s) URL):
-      # 7: {face: {image: cat.gif, label: Meow}}
+      # 9: {face: {image: cat.gif, label: Meow}}
 
     # Other modules: uncomment the ones you have. Numbers follow reading order as mounted
     # (see modules: above); pages without these sections use the start page's.

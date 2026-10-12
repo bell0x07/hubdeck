@@ -28,6 +28,7 @@ ALIASES: dict[str, tuple[str, str]] = {
     "media": ("keyboard", "media"),
     "run": ("launch", "run"),
     "open": ("launch", "open"),
+    "python": ("python", "exec"),
 }
 
 
