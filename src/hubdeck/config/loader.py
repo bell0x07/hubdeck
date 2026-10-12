@@ -88,9 +88,9 @@ def check_references(cfg: Config) -> list[str]:
     for name in sorted(cfg.used_plugins()):
         if name not in REGISTRY:
             problems.append(f"unknown plugin {name!r} (available: {', '.join(sorted(REGISTRY))})")
-    for name, settings in cfg.plugins.items():
+    for name in sorted(set(cfg.plugins) | cfg.used_plugins()):    # used without settings: checked as {}
         if name in REGISTRY:
-            problems += REGISTRY[name].check_config(settings)
+            problems += REGISTRY[name].check_config(cfg.plugins.get(name) or {})
     for where, target, arg in cfg.iter_targets():
         p, n = target.split(".", 1)
         plugin = REGISTRY.get(p)

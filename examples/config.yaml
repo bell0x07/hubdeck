@@ -30,6 +30,8 @@ plugins:
   discord:                     # needs your own Discord app, see README
     client_id: !secret discord_client_id
     client_secret: !secret discord_client_secret
+  spotify:                     # needs Spotify Premium and your own Spotify app, see README
+    client_id: !secret spotify_client_id
 
 # RGB lighting. Nothing is stored on the modules.
 lighting:
@@ -118,7 +120,7 @@ pages:
     knobs:                                 # 1 = top, 2 = bottom-left, 3 = bottom-right
       1: {turn: {target: audio.app_volume, arg: discord.exe, expo: 0.5}}
       2: {turn: {target: audio.mic_volume, expo: 0.5}, action: {audio.toggle_mute: microphone}}
-      3: {turn: {target: audio.app_volume, arg: spotify.exe, expo: 0.5}}
+      3: {turn: {target: spotify.volume, step: 2}}   # Spotify's own slider, not its mixer level
 
     rollers:                               # 1 = left, 2 = right
       1: {turn: {cw: {media: next}, ccw: {media: prev}}}

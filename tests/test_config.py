@@ -68,6 +68,10 @@ def test_missing_secret(write):
     ("keys: {1: {colour: red}}", "colour"),
     ("{}", "nothing defined"),
     ("keys: {1: {action: discord.mute}}\nplugins: {discord: {}}", "client_id is required"),
+    ("knobs: {1: {turn: spotify.volume}}", "spotify.client_id is required"),      # no plugins section
+    ("knobs: {1: {turn: {target: spotify.volume, arg: x}}}\nplugins: {spotify: {client_id: c}}", "takes no arg"),
+    ("keys: {1: {action: spotify.volume_up}}\nplugins: {spotify: {client_id: c, redirect_uri: 'http://localhost:1/x'}}",
+     "doesn't allow localhost"),
     ("keys: {1: {action: {python: 'x ='}}}", r"python: .*\(line 1\)"),
     ("keys: {1: {action: {python: 5}}}", "needs code"),
 ])
@@ -119,6 +123,7 @@ def test_full_showcase_example_is_valid(monkeypatch):
     from pathlib import Path
     monkeypatch.setenv("HUBDECK_DISCORD_CLIENT_ID", "123")
     monkeypatch.setenv("HUBDECK_DISCORD_CLIENT_SECRET", "dummy")
+    monkeypatch.setenv("HUBDECK_SPOTIFY_CLIENT_ID", "dummy")
     path = Path(__file__).resolve().parents[1] / "examples" / "config.yaml"
     cfg = load_config(path, secrets=path.parent / "no-secrets.yaml")
     assert cfg.used_modules() == {"keys", "dial", "knobs", "rollers", "faders", "base"}

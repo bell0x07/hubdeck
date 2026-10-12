@@ -9,7 +9,7 @@ A Stream-Deck-style controller for the whole **Cooler Master MasterHub** family:
 | **3 knobs, 2 rollers, 5 faders** | Volumes (system, microphone, per app) or any action, with knob and fader LEDs that can follow the value. |
 | **Base** | RGB lighting that reacts to state, for example red and breathing while you're muted. |
 
-Actions cover keystrokes, media keys, launching apps, system and per-app audio, and Discord mute/deafen/hold-to-mute. Controls can be grouped into pages, which can follow the app you're using. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
+Actions cover keystrokes, media keys, launching apps, system and per-app audio, Spotify's own volume, and Discord mute/deafen/hold-to-mute. Controls can be grouped into pages, which can follow the app you're using. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
 
 It runs on **Windows** and **macOS**. This is an unofficial tool, tested with real hardware on Windows 11 and macOS. The protocol notes, with sources and what's verified, are in [docs/protocol/](docs/protocol/README.md).
 
@@ -259,7 +259,7 @@ pages:
       1: {action: page.back, face: {icon: arrow-left, label: Back}}
 ```
 
-`hubdeck init` writes a commented starter config. **[examples/config.yaml](examples/config.yaml)** is a complete, working config that uses every module and feature: pages, gestures, live text, Discord, GIFs, the Dial gauge, knobs, rollers, faders, lighting and rotated mounting. If you only need one page, put `keys:`, `dial:`, `knobs:`, `rollers:` and `faders:` at the top level instead of `pages:`.
+`hubdeck init` writes a commented starter config. **[examples/config.yaml](examples/config.yaml)** is a complete, working config that uses every module and feature: pages, gestures, live text, Discord, Spotify, GIFs, the Dial gauge, knobs, rollers, faders, lighting and rotated mounting. If you only need one page, put `keys:`, `dial:`, `knobs:`, `rollers:` and `faders:` at the top level instead of `pages:`.
 
 ### Numbering and mounting
 
@@ -414,6 +414,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `system` | none | `time`, `cpu`, `ram` | none |
 | `media` (Windows) | none (the media keys are `{media: play_pause}` etc., from `keyboard`) | `playing`, `app`, `title`, `artist` (see below) | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
+| `spotify` | `volume_up`, `volume_down` (step in %, default 5), `set_volume` (0–100) | `volume`, `device` (where Spotify plays) | `volume` (Spotify's own slider, [setup](#spotify-setup)) |
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
 
@@ -430,6 +431,12 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
   ```
 - **Hold to mute:** put `on_down: discord.hold_mute_start` and `on_up: discord.hold_mute_end` on one key. This works even if you switch pages while holding it.
 - **App volume:** applies to every audio session of that process, and of the processes it started: `ms-teams.exe` also covers the `msedgewebview2.exe` that new Teams plays through, and `steam.exe` the games started from Steam. Windows' own processes, such as Explorer, don't count, so `explorer.exe` doesn't take in every app you open. An app that isn't playing audio has no value, so faders don't take it over.
+- **Spotify's volume:** `spotify.volume` is the slider in the Spotify app. That's separate from Spotify's level in the Windows mixer, which `audio.app_volume` sets. It works through Spotify's Web API on whatever device Spotify plays on, including a phone or speaker, so it needs Spotify Premium and a [Spotify app](#spotify-setup). It's unknown while nothing plays on Spotify. hubdeck reads it back every 2 s, so changes made in Spotify itself show too.
+
+  ```yaml
+  knobs:
+    2: {turn: {target: spotify.volume, step: 2}}
+  ```
 - **Switching devices:** `audio.set_output` and `audio.set_input` make the first active playback or recording device whose name contains the argument (any case) the default. On Windows that's the Default Device, not the Default Communication Device. `audio.output` and `audio.input` show the current default's name. One key can switch both:
 
   ```yaml
@@ -535,6 +542,22 @@ The Discord plugin needs a Discord app. You create it once, for your own account
 3. Add the redirect `http://localhost` and click **Save Changes**. It must be the **only** redirect. If there are none, or more than one, authorization fails with `Missing "redirect_uri" in request`.
 
 The first time hubdeck connects, Discord shows an authorization popup. The login token is then kept in `discord_token.json` in the hubdeck folder. Voice RPC only works for the app's owner and for whitelisted testers.
+
+### Spotify setup
+
+The Spotify plugin needs a Spotify app, and Spotify Premium: Spotify only lets Premium accounts change the volume. You create the app once, for your own account:
+
+1. Go to https://developer.spotify.com/dashboard and click **Create app**.
+2. Add the redirect URI `http://127.0.0.1:8973/callback`, tick **Web API** and save. Spotify doesn't accept `localhost`. To use another port, add that URI to the app instead and set it as `redirect_uri` under `plugins.spotify`.
+3. Copy the app's **Client ID** into `secrets.yaml` as `spotify_client_id`. There's no client secret.
+
+```yaml
+plugins:
+  spotify:
+    client_id: !secret spotify_client_id
+```
+
+When hubdeck starts without a Spotify login, it opens Spotify's login page in your browser. The login is then kept in `spotify_token.json` in the hubdeck folder. If you skip the login, or it expires, using a Spotify control opens the page again.
 
 ## Shortcuts, scripts and automation
 
