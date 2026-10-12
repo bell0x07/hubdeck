@@ -13,7 +13,8 @@ from ..base import IpcConnection, Platform, Unsupported
 CREATE_NO_WINDOW = 0x08000000
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"     # what Task Manager's Startup apps lists
 RUN_VALUE = "hubdeck"
-ACCENT_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"
+MUTEX_NAME = "Local\\hubdeck-single-instance"
+ACCENT_KEY =r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"
 DWM_KEY = r"Software\Microsoft\Windows\DWM"
 
 
@@ -67,8 +68,13 @@ class WindowsPlatform(Platform):
     def acquire_single_instance(self) -> bool:
         kernel32 = ctypes.windll.kernel32
         kernel32.CreateMutexW.restype = ctypes.c_void_p
-        self._mutex = kernel32.CreateMutexW(None, False, "Local\\hubdeck-single-instance")
-        return kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.CreateMutexW(None, False, MUTEX_NAME)
+        if kernel32.GetLastError() == 183:      # ERROR_ALREADY_EXISTS: another hubdeck has it
+            kernel32.CloseHandle(handle)        # don't keep it alive after that one quits
+            return False
+        self._mutex = handle
+        return True
 
     def open(self, target: str):
         os.startfile(target)

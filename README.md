@@ -67,7 +67,7 @@ From source, run them as `.\.venv\Scripts\hubdeck.exe …` on Windows and `.venv
 3. `hubdeck` is on your PATH for `hubdeck send …`, `hubdeck list` and the rest. Open a new terminal after installing.
 4. **To start at login,** turn on **Start at login** in the tray menu. It shows up in Task Manager › Startup apps as hubdeck.
 
-- **Upgrading:** quit hubdeck from the tray, then run the new MSI. It replaces the installed version, including a development build of the same version. An older version refuses to install over a newer one.
+- **Upgrading:** run the new MSI, even while hubdeck runs. It replaces the installed version, including a development build of the same version, then restarts hubdeck on the new one. An older version refuses to install over a newer one.
 - **Uninstalling:** Settings › Apps › Installed apps › hubdeck. Your config in `%APPDATA%\hubdeck` stays. Turn **Start at login** off first: uninstalling doesn't remove that entry, so Startup apps would keep one that does nothing until you reinstall.
 - **What's installed:** `%LOCALAPPDATA%\Programs\hubdeck` holds `hubdeck-tray.exe` (the tray app), `hubdeck.exe` (the command line) and hubdeck's own Python. `hubdeck-<version>-windows-x64.zip` is the same folder, to run from anywhere without installing.
 

@@ -56,11 +56,13 @@ def _edit(path: Path, template: Path):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="hubdeck-tray")
     ap.add_argument("--config")
+    ap.add_argument("--replace", action="store_true", help="take over from a hubdeck that's already running")
     args = ap.parse_args(argv)
 
     setup_logging(console=False)
-    if not instance.acquire():
-        current().message_box("hubdeck is already running (check the system tray).")
+    if not instance.acquire() and not (args.replace and instance.replace_running()):
+        if not args.replace:            # after an upgrade, staying quiet beats a confusing message
+            current().message_box("hubdeck is already running (check the system tray).")
         return
     source = ConfigSource(Path(args.config) if args.config else None)
     engine = Engine(source)
@@ -133,6 +135,9 @@ def main(argv=None):
     icon = pystray.Icon("hubdeck", _icon_image(), "hubdeck", menu)
 
     def on_event(event, detail):
+        if event == "quit":                 # asked over the control channel, e.g. by an upgrade
+            current().call_on_ui_thread(quit_app)
+            return
         if event == "error":
             notify(detail[-250:], "hubdeck: config error")
         elif event == "reloaded":

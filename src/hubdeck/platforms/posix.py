@@ -53,11 +53,13 @@ class PosixPlatform(Platform):
 
         from .. import paths
         paths.app_dir().mkdir(parents=True, exist_ok=True)
-        self._lock = open(paths.app_dir() / ".lock", "w")
+        lock = open(paths.app_dir() / ".lock", "w")
         try:
-            fcntl.flock(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)   # the OS releases it when we exit
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)   # the OS releases it when we exit
         except OSError:
+            lock.close()
             return False
+        self._lock = lock
         return True
 
     def open(self, target: str):

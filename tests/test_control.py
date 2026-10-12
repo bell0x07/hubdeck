@@ -216,3 +216,10 @@ def test_send_set_reads_text_from_stdin(engine, monkeypatch):
     engine.step()
     engine.step()
     assert engine.state["vars.weather"] == "21°C\nPartly cloudy: windy"
+
+
+def test_quit_stops_hubdeck_and_tells_the_tray(engine):
+    events = []
+    engine.listeners.append(lambda event, detail: events.append(event))
+    assert send({"cmd": "quit"}) == {"ok": True}
+    assert engine._stop.is_set() and events == ["quit"]

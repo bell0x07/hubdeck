@@ -5,6 +5,7 @@ The engine listens on 127.0.0.1 (a random port) for one JSON request per connect
     {"token": ..., "cmd": "action", "action": "discord.toggle_mute"}      any config action
     {"token": ..., "cmd": "set", "name": "focus", "value": "Work"}       sets vars.focus
     {"token": ..., "cmd": "get", "name": "audio.volume"}                 reads a state
+    {"token": ..., "cmd": "quit"}                                        stops hubdeck (installer upgrades)
 
 and answers {"ok": true, ...} or {"ok": false, "error": "..."}. The port and a per-run
 token are in control.json in the hubdeck folder, readable by this user only. Anything
@@ -115,6 +116,10 @@ class ControlServer:
                     return {"ok": False, "error": "get needs a state like audio.volume or vars.focus"}
                 state = self.engine.state
                 return {"ok": True, "value": state.get(name), "known": state.get(name) is not None}
+            if cmd == "quit":       # e.g. a freshly installed hubdeck-tray --replace taking over
+                self.engine.stop()
+                self.engine.notify("quit")
+                return {"ok": True}
         except ValueError as e:
             return {"ok": False, "error": str(e)}
         return {"ok": False, "error": f"unknown command {cmd!r}"}
