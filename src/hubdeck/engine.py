@@ -533,7 +533,7 @@ class Engine:
             if plugin is None:
                 return
             try:
-                plugin.adjust(n, t.arg, steps * t.step)
+                plugin.adjust(n, t.arg, steps * t.step, t.expo)
             except Exception as e:
                 log.error("%s: adjust failed: %s", t.target, e)
             return

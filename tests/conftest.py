@@ -28,8 +28,8 @@ class RecorderPlugin(Plugin):
     def invoke(self, action, arg):
         self.calls.append((action, arg))
 
-    def adjust(self, name, arg, delta):
-        self.calls.append(("adjust", name, arg, delta))
+    def adjust(self, name, arg, delta, expo=0.0):
+        self.calls.append(("adjust", name, arg, delta) + ((expo,) if expo else ()))   # expo only when set
 
     def set(self, name, arg, value):
         self.calls.append(("set", name, arg, value))

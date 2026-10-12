@@ -119,15 +119,29 @@ def test_threaded_plugin_merges_queued_adjusts():
         name = "slow"
 
     p = Slow(PluginContext("slow", lambda *a: None), {})
-    for item in [(_ADJUST, ("vol", "Music", 2)), (_ADJUST, ("vol", "Music", 2)), (_ADJUST, ("vol", "Music", -2)),
-                 (_ADJUST, ("vol", "Music", 2)), (_ADJUST, ("vol", None, 5)), ("toggle", None)]:
+    for item in [(_ADJUST, ("vol", "Music", 2, 0)), (_ADJUST, ("vol", "Music", 2, 0)),
+                 (_ADJUST, ("vol", "Music", -2, 0)), (_ADJUST, ("vol", "Music", 2, 0)),
+                 (_ADJUST, ("vol", None, 5, 0)), ("toggle", None)]:
         p._queue.put(item)
     first = p._next()
-    assert p._merge_adjusts(first[1]) == ("vol", "Music", 4)
+    assert p._merge_adjusts(first[1]) == ("vol", "Music", 4, 0)
     second = p._next()
-    assert second == (_ADJUST, ("vol", None, 5))
-    assert p._merge_adjusts(second[1]) == ("vol", None, 5)
+    assert second == (_ADJUST, ("vol", None, 5, 0))
+    assert p._merge_adjusts(second[1]) == ("vol", None, 5, 0)
     assert p._next() == ("toggle", None)
+
+
+def test_threaded_plugin_merges_adjusts_only_on_the_same_curve():
+    from hubdeck.plugins.base import _ADJUST, PluginContext, ThreadedPlugin
+
+    class Slow(ThreadedPlugin):
+        name = "slow"
+
+    p = Slow(PluginContext("slow", lambda *a: None), {})
+    for item in [(_ADJUST, ("vol", None, 2, 0.5)), (_ADJUST, ("vol", None, 2, 0.5)), (_ADJUST, ("vol", None, 2, 0))]:
+        p._queue.put(item)
+    assert p._merge_adjusts(p._next()[1]) == ("vol", None, 4, 0.5)
+    assert p._merge_adjusts(p._next()[1]) == ("vol", None, 2, 0)
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS AppleScript")

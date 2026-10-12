@@ -245,11 +245,11 @@ pages:
         face_on:      {icon: microphone-off, label: MUTED, bg: "#c81e28", fg: white}
         face_unknown: {icon: plug-connected-x, label: NO DC, bg: "#c81e28", fg: white}
     dial:
-      turn: {target: audio.volume, step: 2}
+      turn: {target: audio.volume, step: 2, expo: 0.5}
       action: audio.toggle_mute
       face: {icon: volume, label: "{value}%", gauge: true}
     knobs:
-      1: {turn: {target: audio.app_volume, arg: spotify.exe}}
+      1: {turn: {target: audio.app_volume, arg: spotify.exe, expo: 0.5}}
     rollers:
       1: {turn: {cw: {media: next}, ccw: {media: prev}}}
     faders:
@@ -287,6 +287,7 @@ These share the same fields.
 - **Actions** are written either as `plugin.action` or as `{plugin.action: argument}`. A list runs several actions in order. The short forms are `page`, `keys`, `type`, `media`, `run`, `open` and `python`.
 - **Turning** (Dial, knobs, rollers) works one of two ways:
   - `turn: {target: plugin.value, arg: ..., step: 2, invert: false}` adjusts a value by `step` per click.
+    - Add `expo` (0–1, like an RC transmitter's expo) to make clicks finer near 0 and coarser near 100. Going from 0 to 100 still takes 100/`step` clicks. With `step: 2, expo: 0.5`, clicks are about 1% at the bottom and 4% at the top. 0 (the default) gives even clicks.
   - `turn: {cw: action, ccw: action}` runs actions per click (clockwise = up/right for rollers).
   - `turn: audio.volume` is short for a target.
 - **State:** `state: plugin.state` uses `face_on` while the value is true and `face_unknown` while it's unknown, for example when Discord is closed. Fields you don't set in the overlay are taken from `face`.

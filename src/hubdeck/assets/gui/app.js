@@ -526,7 +526,11 @@ function turnFields() {
   if (t.target === "audio.app_volume") out.push(field("App", appPicker(["turn", "arg"])));
   if (mode === "value") out.push(field("Step", h("input", { type: "number", value: t.step ?? 2, min: 1, max: 25, style: "width:80px",
     oninput: e => { setPath(cur.raw, ["turn", "step"], e.target.value === "" ? undefined : Number(e.target.value)); changed(); } }),
-    h("span", { class: "muted" }, "% per click")), field("", checkIn(["turn", "invert"], "reverse the direction")));
+    h("span", { class: "muted" }, "% per click")),
+    field("Expo", h("input", { type: "number", value: t.expo ?? 0, min: 0, max: 1, step: 0.1, style: "width:80px",
+      oninput: e => { setPath(cur.raw, ["turn", "expo"], Number(e.target.value) || undefined); changed(); } }),
+      h("span", { class: "muted" }, "0 = even; up to 1 = finer near 0, coarser near 100")),
+    field("", checkIn(["turn", "invert"], "reverse the direction")));
   if (mode === "actions") {
     const turnObj = () => (cur.raw.turn ??= {});
     out.push(field(cur.section === "rollers" ? "Up / right" : "Clockwise", actionEditor("cw", turnObj)),

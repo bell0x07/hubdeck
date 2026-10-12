@@ -98,20 +98,20 @@ pages:
 
     # These sections apply to every page that doesn't define its own.
     dial:                                  # round screen: system volume with a gauge
-      turn: {target: audio.volume, step: 2}
+      turn: {target: audio.volume, step: 2, expo: 0.5}   # expo: finer clicks at low volume
       action: audio.toggle_mute
       state: audio.speaker_muted
       face:    {icon: volume, label: "{value}%", gauge: true}
       face_on: {icon: volume-off, label: MUTED, bg: "#c81e28", fg: white}
 
     knobs:                                 # 1 = top, 2 = bottom-left, 3 = bottom-right
-      1: {turn: {target: audio.app_volume, arg: discord.exe}}
-      2: {turn: audio.mic_volume, action: {audio.toggle_mute: microphone}}
-      3: {turn: {target: audio.app_volume, arg: spotify.exe}}
+      1: {turn: {target: audio.app_volume, arg: discord.exe, expo: 0.5}}
+      2: {turn: {target: audio.mic_volume, expo: 0.5}, action: {audio.toggle_mute: microphone}}
+      3: {turn: {target: audio.app_volume, arg: spotify.exe, expo: 0.5}}
 
     rollers:                               # 1 = left, 2 = right
       1: {turn: {cw: {media: next}, ccw: {media: prev}}}
-      2: {turn: {target: audio.volume, step: 2}}
+      2: {turn: {target: audio.volume, step: 2, expo: 0.5}}
 
     faders:                                # soft takeover: no jumps when you grab a fader
       1: {target: audio.volume}
@@ -134,7 +134,7 @@ pages:
         face:    {icon: volume, label: SOUND}
         face_on: {icon: volume-off, label: MUTED, bg: "#c81e28", fg: white}
     dial:                                  # on this page the dial controls Spotify instead
-      turn: {target: audio.app_volume, arg: spotify.exe, step: 2}
+      turn: {target: audio.app_volume, arg: spotify.exe, step: 2, expo: 0.5}
       action: {media: play_pause}
       face: {icon: brand-spotify, label: "{value}%", gauge: true}
 
@@ -142,6 +142,6 @@ pages:
     keys:
       1: {action: page.home, face: {icon: home, label: Home}}
     dial:                                  # same volume control, with a GIF behind the gauge
-      turn: {target: audio.volume, step: 2}
+      turn: {target: audio.volume, step: 2, expo: 0.5}
       face: {image: "https://upload.wikimedia.org/wikipedia/commons/2/2c/Rotating_earth_%28large%29.gif",
              label: "{value}%", gauge: true}

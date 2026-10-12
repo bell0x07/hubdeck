@@ -4,7 +4,7 @@ The OS side is platforms.current().audio()."""
 from __future__ import annotations
 
 from ..platforms import current
-from .base import ThreadedPlugin, value_state
+from .base import ThreadedPlugin, adjusted, value_state
 
 KINDS = {"speakers": "speakers", "speaker": "speakers", "output": "speakers",
          "microphone": "microphone", "mic": "microphone", "input": "microphone"}
@@ -105,7 +105,7 @@ class AudioPlugin(ThreadedPlugin):
         else:
             self.backend.set_volume("microphone" if name == "mic_volume" else "speakers", level)
 
-    def adjust_value(self, name, arg, delta):
+    def adjust_value(self, name, arg, delta, expo):
         current = self._get(name, arg)
         if current is None:
             if (name, arg) not in self._unavailable:      # once, not on every click
@@ -113,7 +113,7 @@ class AudioPlugin(ThreadedPlugin):
                 self._unavailable.add((name, arg))
             return
         self._unavailable.discard((name, arg))
-        self._set(name, arg, current + delta)
+        self._set(name, arg, adjusted(current, delta, expo))
         self._publish_value(name, arg)
 
     def set_value(self, name, arg, value):

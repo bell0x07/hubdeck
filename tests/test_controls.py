@@ -6,7 +6,7 @@ from hubdeck.config import ConfigError, ConfigSource, load_config
 from hubdeck.device.fake import FakeControls, FakeKeyModule
 from hubdeck.device.modules import DialModule, Event, KnobsModule, RollersModule
 from hubdeck.engine import Engine
-from hubdeck.plugins.base import value_state
+from hubdeck.plugins.base import adjusted, value_state
 
 CONFIG = """
 device: {reassert_seconds: 0}
@@ -61,6 +61,32 @@ def test_dial_turn_adjusts_target_with_step(write, recorder):
     devs["dial"].push("turn", 0, -1)
     eng.step()
     assert rec(recorder).calls == [("adjust", "level", None, 6), ("adjust", "level", None, -3)]
+
+
+def test_turn_passes_expo_to_the_target(write, recorder):
+    eng, devs, _ = make(write, "knobs: {1: {turn: {target: rec.level, step: 4, expo: 0.5}}}\n", kinds=("knobs",))
+    devs["knobs"].push("turn", 2, -2)                     # knob 1 = top = module index 2
+    eng.step()
+    assert rec(recorder).calls == [("adjust", "level", None, -8, 0.5)]
+
+
+def test_expo_curve():
+    """Expo makes clicks finer near 0 and coarser near 100; the range takes as many clicks as linear."""
+    assert adjusted(50, 2) == 52 and adjusted(99, 2) == 100 and adjusted(1, -2) == 0
+    assert adjusted(50, 2, 0) == 52
+
+    def clicks(expo, step=2):
+        levels = [0.0]
+        while levels[-1] < 100 - 1e-6:
+            levels.append(adjusted(levels[-1], step, expo))
+        return levels
+    levels = clicks(0.5)
+    assert len(levels) - 1 == 50
+    assert levels[1] == pytest.approx(1.0004) and levels[-1] - levels[-2] == pytest.approx(3.9404)
+    assert all(b - a < d - c for (a, b), (c, d) in zip(zip(levels, levels[1:]), zip(levels[1:], levels[2:])))
+    back = [adjusted(v, -2, 0.5) for v in levels[1:]]     # turning back retraces the same levels
+    assert back == pytest.approx(levels[:-1], abs=1e-6)
+    assert clicks(1.0)[1] == pytest.approx(0.0008)        # full expo: very fine at the bottom
 
 
 def test_dial_press_gestures(write, recorder):
@@ -212,6 +238,7 @@ def test_unused_modules_are_not_opened(write):
     ("knobs: {4: {turn: rec.level}}", "knob numbers must be 1-3"),
     ("faders: {1: {target: volume}}", "plugin.value"),
     ("dial: {turn: {target: rec.level, cw: rec.a}}", "not both"),
+    ("dial: {turn: {target: rec.level, expo: 30}}", "expo"),
 ])
 def test_control_validation(write, body, message):
     with pytest.raises(ConfigError, match=message):

@@ -165,6 +165,7 @@ class TurnDef(_Model):
     target: str | None = None          # plugin.value, e.g. audio.volume
     arg: Any = None                    # e.g. the app for audio.app_volume
     step: float = Field(default=2, gt=0)
+    expo: float = Field(default=0, ge=0, le=1)   # 0 = even clicks; up to 1: finer near 0, coarser near 100
     invert: bool = False
     cw: list[Action] = []              # actions per clockwise / up step
     ccw: list[Action] = []

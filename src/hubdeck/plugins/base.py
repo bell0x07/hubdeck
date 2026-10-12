@@ -36,6 +36,25 @@ def value_state(name: str, arg: Any) -> str:
     return f"value:{name}:{'' if arg is None else arg}"
 
 
+def _expo(x: float, expo: float) -> float:
+    return (1 - expo) * x + expo * x ** 3
+
+
+def adjusted(value: float, delta: float, expo: float = 0.0) -> float:
+    """`value` (0-100) moved by `delta`, kept within 0-100. With `expo` (0-1) the move is along
+    an RC-style expo curve, value = (1 - expo)·x + expo·x³ of a position x that `delta` moves:
+    clicks get finer near 0 and coarser near 100, and 0 to 100 still takes 100/step clicks."""
+    if not expo:
+        return max(0.0, min(100.0, value + delta))
+    y = max(0.0, min(1.0, value / 100))
+    lo, hi = 0.0, 1.0           # the position of `value`: bisection, the curve only rises
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if _expo(mid, expo) < y else (lo, mid)
+    x = max(0.0, min(1.0, (lo + hi) / 2 + delta / 100))
+    return _expo(x, expo) * 100
+
+
 class Plugin:
     name: ClassVar[str]
     actions: ClassVar[dict[str, str]] = {}   # action -> help text
@@ -92,7 +111,8 @@ class Plugin:
         """Values the config shows/uses; publish them with set_state(value_state(name, arg), 0-100)."""
         self.watched = set(targets)
 
-    def adjust(self, name: str, arg: Any, delta: float):
+    def adjust(self, name: str, arg: Any, delta: float, expo: float = 0.0):
+        """Move a value by `delta` on the turn's expo curve: set it to adjusted(current, delta, expo)."""
         raise NotImplementedError
 
     def set(self, name: str, arg: Any, value: float):
@@ -127,8 +147,8 @@ class ThreadedPlugin(Plugin):
     def invoke(self, action, arg):
         self._queue.put((action, arg))
 
-    def adjust(self, name, arg, delta):
-        self._queue.put((_ADJUST, (name, arg, delta)))
+    def adjust(self, name, arg, delta, expo=0.0):
+        self._queue.put((_ADJUST, (name, arg, delta, expo)))
 
     def set(self, name, arg, value):
         self._queue.put((_SET, (name, arg, value)))
@@ -177,18 +197,19 @@ class ThreadedPlugin(Plugin):
 
     def _merge_adjusts(self, arg):
         """Fold the adjusts of the same value that queued up meanwhile into one,
-        so a fast spin of a slow target (AppleScript, ~10 ms) doesn't build a backlog."""
-        name, target, delta = arg
+        so a fast spin of a slow target (AppleScript, ~10 ms) doesn't build a backlog.
+        Moves on the same expo curve add up like linear ones."""
+        name, target, delta, expo = arg
         while self._pending is None:
             try:
                 item = self._queue.get_nowait()
             except queue.Empty:
                 break
-            if item[0] == _ADJUST and item[1][:2] == (name, target):
+            if item[0] == _ADJUST and item[1][:2] == (name, target) and item[1][3] == expo:
                 delta += item[1][2]
             else:
                 self._pending = item
-        return name, target, delta
+        return name, target, delta, expo
 
     # override these ----------------------------------------------------
     def setup(self):
@@ -197,7 +218,7 @@ class ThreadedPlugin(Plugin):
     def handle(self, action: str, arg: Any):
         raise NotImplementedError
 
-    def adjust_value(self, name: str, arg: Any, delta: float):
+    def adjust_value(self, name: str, arg: Any, delta: float, expo: float):
         raise NotImplementedError
 
     def set_value(self, name: str, arg: Any, value: float):

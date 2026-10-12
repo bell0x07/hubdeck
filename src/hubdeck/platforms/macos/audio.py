@@ -223,7 +223,7 @@ class MacAudio(AudioBackend):
     def set_app_volume(self, app: str, level: float):
         name = self._find_app(app)
         if name is not None:
-            self._apps.set(name, round(max(0.0, min(100.0, level))))
+            self._apps.set(name, max(0.0, min(100.0, level)))
 
 
 class AppVolumes:
@@ -231,7 +231,8 @@ class AppVolumes:
     takes ~0.2 s, or hangs while macOS asks for permission, and the audio thread also serves
     the Dial and mute. `get` returns what's known and refreshes it in the background when
     stale; `set` records the wanted level and returns. A worker sends only the latest wanted
-    level per app, so a fast turn costs one call.
+    level per app, so a fast turn costs one call. Levels stay fractional until sent (AppleScript
+    takes whole numbers), so a turn's small expo clicks near 0 add up instead of rounding away.
 
     osascript rather than in-process NSAppleScript: NSAppleScript is main-thread only, and off
     it, compiling `tell application "Music"` hung inside hubdeck."""
@@ -240,7 +241,7 @@ class AppVolumes:
         self.script_timeout = script_timeout
         self._lock = threading.Lock()
         self._known: dict[str, tuple[float, float | None]] = {}   # app -> (when read, volume)
-        self._wanted: dict[str, int] = {}                          # app -> level not sent yet
+        self._wanted: dict[str, float] = {}                        # app -> level not sent yet
         self._stale: set[str] = set()                              # apps to read again
         self._problem: dict[str, str] = {}                         # app -> last problem logged
         self._busy = False
@@ -250,14 +251,14 @@ class AppVolumes:
     def get(self, name: str) -> float | None:
         with self._lock:
             if name in self._wanted:
-                return float(self._wanted[name])
+                return self._wanted[name]
             when, volume = self._known.get(name, (float("-inf"), None))
             if time.monotonic() - when >= APP_VOLUME_CACHE_SECONDS:
                 self._stale.add(name)
                 self._wake.set()
             return volume
 
-    def set(self, name: str, level: int):
+    def set(self, name: str, level: float):
         with self._lock:
             self._wanted[name] = level
             self._wake.set()
@@ -275,7 +276,7 @@ class AppVolumes:
                 self._stale.clear()
                 self._busy = True
             for name, level in jobs:
-                command = "get sound volume" if level is None else f"set sound volume to {level}"
+                command = "get sound volume" if level is None else f"set sound volume to {round(level)}"
                 result = self._tell(name, command)
                 with self._lock:
                     if level is None:
