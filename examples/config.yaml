@@ -136,7 +136,11 @@ pages:
     keys:
       1: {action: page.back, face: {icon: arrow-left, label: Back}}
       2: {action: {media: prev}, face: {icon: player-skip-back}}
-      3: {action: {media: play_pause}, face: {icon: player-play}}
+      3:
+        action: {media: play_pause}
+        state: media.playing                # what's playing (Windows): pause icon while it plays
+        face:    {icon: player-play, label: "{media.app}"}
+        face_on: {icon: player-pause, label: "{media.app}"}
       4: {action: {media: next}, face: {icon: player-skip-forward}}
       5: {action: {audio.volume_down: 5}, face: {icon: volume-2, label: "{audio.volume}%"}}
       6: {action: {audio.volume_up: 5}, face: {icon: volume, label: "{audio.volume}%"}}

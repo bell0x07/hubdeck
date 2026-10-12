@@ -347,3 +347,114 @@ def test_windows_single_instance_frees_the_other_hubdecks_mutex(monkeypatch):
     ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(first._mutex))   # the first hubdeck quits
     assert second.acquire_single_instance() is True
     ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(second._mutex))
+
+
+def _media_plugin(monkeypatch, reader):
+    from hubdeck.plugins import media
+    from hubdeck.plugins.base import PluginContext
+
+    def make():
+        if isinstance(reader, Exception):
+            raise reader
+        return reader
+
+    monkeypatch.setattr(media, "current", lambda: type("P", (), {"media": lambda self: make()})())
+    emitted = []
+    plugin = media.MediaPlugin(PluginContext("media", lambda p, k, v: emitted.append((k, v))), {})
+    plugin.setup()
+    return plugin, emitted
+
+
+def test_media_plugin_publishes_what_changed(monkeypatch):
+    from hubdeck.platforms import MediaReader, NowPlaying
+
+    class Reader(MediaReader):
+        now: object = NowPlaying("Spotify", True, "Sundust", "Rodg")
+
+        def read(self):
+            if isinstance(self.now, Exception):
+                raise self.now
+            return self.now
+
+    reader = Reader()
+    plugin, emitted = _media_plugin(monkeypatch, reader)
+    plugin.tick()
+    assert emitted == [("playing", True), ("app", "Spotify"), ("title", "Sundust"), ("artist", "Rodg")]
+    emitted.clear()
+    plugin.tick()
+    assert emitted == []                                      # nothing new, nothing sent
+    reader.now = NowPlaying("Spotify", False, "Sundust", "Rodg")
+    plugin.tick()
+    assert emitted == [("playing", False)]                    # paused
+    emitted.clear()
+    reader.now = OSError("session went away")
+    plugin.tick()
+    assert emitted == []                                      # a failed read keeps what's shown
+    reader.now = None
+    plugin.tick()
+    assert emitted == [(f, None) for f in ("playing", "app", "title", "artist")]   # no app has media open
+
+
+def test_media_plugin_without_support_publishes_nothing(monkeypatch):
+    plugin, emitted = _media_plugin(monkeypatch, Unsupported("not here"))
+    plugin.tick()
+    plugin.teardown()
+    assert emitted == []
+
+
+def test_media_app_name_from_the_start_menu_or_the_process():
+    from hubdeck.platforms.windows.media import app_name
+
+    start_menu = {"Brave": "Brave", "MSEdge": "Microsoft Edge"}.get
+    assert app_name("MSEdge", start_menu) == "Microsoft Edge"
+    assert app_name("Spotify.exe", start_menu) == "Spotify"   # no Start menu id: the process
+    assert app_name("308046B0AF4A39CB", start_menu) == "308046B0AF4A39CB"
+
+
+def test_windows_media_keeps_the_icon_between_tracks():
+    """CHANGING (skipping to the next track) reads as the app's last state, so a playing
+    key doesn't blink to paused on every skip."""
+    from types import SimpleNamespace
+    control = pytest.importorskip("winrt.windows.media.control")
+    from hubdeck.platforms import NowPlaying
+    from hubdeck.platforms.windows.media import WinMedia
+    status = control.GlobalSystemMediaTransportControlsSessionPlaybackStatus
+
+    session = SimpleNamespace(source_app_user_model_id="Spotify.exe", status=None)
+    session.get_playback_info = lambda: SimpleNamespace(playback_status=session.status)
+    session.try_get_media_properties_async = lambda: SimpleNamespace(
+        get=lambda: SimpleNamespace(title="Sundust", artist=""))
+    reader = WinMedia.__new__(WinMedia)                       # no Windows session manager
+    reader.manager = SimpleNamespace(get_current_session=lambda: session)
+    reader.names, reader.last = {"Spotify.exe": "Spotify"}, None
+
+    def read(s):
+        session.status = s
+        return reader.read()
+
+    assert read(status.PLAYING) == NowPlaying("Spotify", True, "Sundust", None)   # no artist: unknown
+    assert read(status.CHANGING).playing is True
+    assert read(status.PAUSED).playing is False
+    assert read(status.CHANGING).playing is False
+    assert read(status.CLOSED) is None
+    reader.manager = SimpleNamespace(get_current_session=lambda: None)
+    assert reader.read() is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows media sessions")
+def test_windows_media_reads_the_current_session():
+    pytest.importorskip("winrt.windows.media.control")
+    result = []
+
+    def read():                                               # a thread of its own, like the plugin's
+        reader = current().media()
+        try:
+            result.append(reader.read())
+        finally:
+            reader.close()
+
+    t = threading.Thread(target=read)
+    t.start()
+    t.join(10)
+    now, = result                                             # whatever plays while the tests run
+    assert now is None or (now.app and isinstance(now.playing, bool))

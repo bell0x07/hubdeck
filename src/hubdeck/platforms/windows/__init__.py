@@ -1,5 +1,5 @@
 """Windows: %APPDATA%, a named mutex, ShellExecute, named pipes, pycaw, SendInput, the Run key,
-the foreground window."""
+the foreground window, media sessions."""
 
 from __future__ import annotations
 
@@ -113,6 +113,10 @@ class WindowsPlatform(Platform):
     def focus(self):
         from .focus import WinFocus
         return WinFocus()
+
+    def media(self):
+        from .media import WinMedia
+        return WinMedia()
 
     def accent_color(self) -> tuple[int, int, int] | None:
         """The accent colour from Settings > Personalization > Colors. AccentPalette holds 8
