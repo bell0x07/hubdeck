@@ -58,11 +58,17 @@ class Previewer:
             self._stamp = cfg
         return self._local
 
-    def render(self, cfg, page: str, section: str, kd, shape: str) -> bytes:
+    def render(self, cfg, page: str, section: str, kd, shape: str, num=None) -> bytes:
         eng = self._resolver(cfg)
         saved = eng.page_stack
         try:
             eng.page_stack = [page] if page in eng.cfg.pages else [eng.cfg.start_page]
+            display = eng.cfg.pages[eng.page_stack[0]].display
+            if section == "keys" and display is not None and str(num).isdigit() and 1 <= int(num) <= 15:
+                from ..device import layout       # a display page: the key shows its part of the display
+                tile = eng.display_tiles(display, eng.clock())[int(num) - 1]
+                tile = tile.rotate(-layout.image_rotation(cfg.modules.keys.rotate))
+                return _png(tile.resize((FACE_SIZE["keys"],) * 2, Image.LANCZOS))
             face = eng.face_for(kd)
             picture = None
             if face.image:
@@ -323,7 +329,7 @@ class GuiServer:
                 if face.image and "{" not in face.image and not face.image.lower().startswith(("http://", "https://")):
                     p = Path(face.image).expanduser()
                     face.image = str(p if p.is_absolute() else self.source.path.parent / p)
-        return self.preview.render(cfg, page, section, kd, "round" if section == "dial" else "square")
+        return self.preview.render(cfg, page, section, kd, "round" if section == "dial" else "square", num)
 
     def audio_info(self) -> dict:
         """Apps currently holding an audio session and the active playback devices, for pickers."""

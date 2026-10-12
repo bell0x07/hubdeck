@@ -229,8 +229,60 @@ def _check_range(v: dict, count: int, what: str):
     return v
 
 
+STATE_RE = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_:.\-]*$")
+
+
+class Display(Style):
+    """A page's `display`: the 15 keys as one screen, showing one of a picture, a chart or
+    big text (render/display.py). Keys on the page still run their actions."""
+    image: str | None = None             # file, folder (a slideshow) or http(s) URL; relative = config folder
+    fit: Literal["cover", "contain"] = "cover"
+    every: float = Field(default=10, ge=1)                   # slideshow: seconds per picture
+    shuffle: bool = False                                    # slideshow: random order
+    chart: list[str] | None = None       # states to plot over time, e.g. [system.cpu, system.ram]
+    history: int = Field(default=60, ge=5, le=3600)          # seconds the chart spans
+    range: tuple[float, float] | Literal["auto"] = (0, 100)  # chart's value range; auto fits the values
+    colors: list[str] | None = None                          # one per chart line
+    text: str | None = None              # a letter per key, with {templates}, e.g. "{system.time:%H:%M}"
+    label: str | None = None             # pictures and charts: small text in the top-left key, with {templates}
+    gap: int | None = Field(default=None, ge=0, le=100)   # this display's bezel; null = modules.keys.gap
+
+    @field_validator("chart", mode="before")
+    @classmethod
+    def _one_state(cls, v):
+        return [v] if isinstance(v, str) else v
+
+    @field_validator("chart")
+    @classmethod
+    def _state_names(cls, v):
+        for name in v or []:
+            if not STATE_RE.match(name):
+                raise ValueError(f"chart: {name!r} isn't a state like system.cpu")
+        return v
+
+    @field_validator("colors")
+    @classmethod
+    def _chart_colors(cls, v):
+        for c in v or []:
+            _check_color(c)
+        return v
+
+    @model_validator(mode="after")
+    def _one_kind(self):
+        kinds = [k for k in ("image", "chart", "text") if getattr(self, k)]
+        if len(kinds) != 1:
+            raise ValueError("display needs exactly one of image, chart or text"
+                             + (f" (got {', '.join(kinds)})" if kinds else ""))
+        if self.text and self.label:
+            raise ValueError("display: a text display has no label; add a line to the text instead (\\n)")
+        if self.range != "auto" and self.range[0] >= self.range[1]:
+            raise ValueError("display range: the first value must be below the second")
+        return self
+
+
 class Page(_Model):
     keys: dict[int, KeyDef] = {}
+    display: Display | None = None   # the keys as one screen; the keys' faces aren't shown then
     dial: ControlDef | None = None
     knobs: dict[int, ControlDef] = {}
     rollers: dict[int, ControlDef] = {}
@@ -377,9 +429,13 @@ class ScreenSettings(ModuleSettings):
     brightness: int | None = Field(default=None, ge=0, le=100)   # backlight; null = leave as is
 
 
+class KeySettings(ScreenSettings):
+    gap: int = Field(default=22, ge=0, le=100)   # bezel between key screens in pixels, for a page's display
+
+
 class Modules(_Model):
     """Per-module mounting and settings."""
-    keys: ScreenSettings = ScreenSettings()
+    keys: KeySettings = KeySettings()
     dial: ScreenSettings = ScreenSettings()
     knobs: ModuleSettings = ModuleSettings()
     rollers: ModuleSettings = ModuleSettings()
@@ -436,7 +492,7 @@ class Config(_Model):
     # -- helpers used by the engine ---------------------------------------
     def owned_keys(self) -> set[int]:
         """1-based key numbers hubdeck paints."""
-        if self.device.ownership == "exclusive":
+        if self.device.ownership == "exclusive" or any(p.display for p in self.pages.values()):
             return set(range(1, KEY_COUNT + 1))
         return {k for p in self.pages.values() for k in p.keys}
 
@@ -473,7 +529,7 @@ class Config(_Model):
 
     def used_modules(self) -> set[str]:
         kinds = set()
-        if self.device.ownership == "exclusive" or any(p.keys for p in self.pages.values()):
+        if self.device.ownership == "exclusive" or any(p.keys or p.display for p in self.pages.values()):
             kinds.add("keys")
         for name in ("dial", "knobs", "rollers", "faders"):
             if any(getattr(p, name) for p in self.pages.values()):
@@ -481,8 +537,23 @@ class Config(_Model):
         kinds.update(kind for kind, _, _ in self.lighting.zones())
         return kinds
 
+    def iter_displays(self):
+        """(config path, Display) for every page with a display."""
+        for page_name, page in self.pages.items():
+            if page.display:
+                yield f"pages.{page_name}.display", page.display
+
+    def display_refs(self, display: "Display") -> list[str]:
+        """States a display shows: its chart lines and the {templates} in its text and label."""
+        refs = list(display.chart or [])
+        for s in (display.text, display.label):
+            refs += [f"{p}.{n}" for p, n, _ in TEMPLATE_RE.findall(s or "")]
+        return refs
+
     def state_refs(self) -> set[tuple[str, str]]:
         refs = set()
+        for _, display in self.iter_displays():
+            refs.update(tuple(r.split(".", 1)) for r in self.display_refs(display))
         for _, kd in self.iter_defs():
             if kd.state:
                 refs.add(tuple(kd.state.split(".", 1)))

@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import logging
+import math
 import queue
+import random
 import re
 import threading
 import time
+from collections import deque
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Callable
 
 from .config import Config, ConfigError, ConfigSource, KeyDef
-from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef
+from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef, Display
 from .device import DeviceError
 from .device.manager import RETRY_SECONDS, DeviceManager, present_kinds
 from .device import layout
@@ -20,7 +24,8 @@ from .gestures import GestureTracker
 from .lighting import LightingController
 from .plugins import REGISTRY, Plugin, PluginContext
 from .plugins.base import value_state
-from .render.images import ImageStore
+from .render import display as keydisplay
+from .render.images import ImageStore, is_url, slideshow_files
 from . import paths
 from .render.faces import BLANK, RenderFace, accent_color, parse_color, render
 
@@ -32,6 +37,7 @@ PRESSABLE = {"keys": 15, "dial": 1, "knobs": 3}   # modules whose controls have 
 SCREENS = ("keys", "dial")
 TAKEOVER_WINDOW = 4                               # faders pick up the value within +/- this
 FADER_ECHO_SECONDS = 1.0                          # a target value this recent from the fader is its own echo
+CHART_SAMPLE_SECONDS = 1.0                        # how often a display's chart records its values
 
 
 LINE_FMT = re.compile(r"line(\d+)")
@@ -54,6 +60,11 @@ def format_value(value: Any, fmt: str | None) -> str:
     if isinstance(value, bool):
         return "on" if value else "off"
     return str(value)
+
+
+def _number(value: Any) -> float | None:
+    """A state as a chart value: numbers as they are, anything else is a gap."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 class Engine:
@@ -89,6 +100,11 @@ class Engine:
         self._dirty = True
         self._force = False
         self._accent = None             # last accent colour painted, to repaint when the OS one changes
+        self._history: dict[str, deque] = {}   # chart state -> (time, value) samples
+        self._sample_at = 0.0
+        self._display_wake = math.inf           # when a display must repaint (the next slide)
+        self._display_cache: dict[tuple, list[bytes]] = {}
+        self._slides: dict[str, tuple[float, list[Path]]] = {}   # folder -> (listed at, pictures)
         self._reload_check_at = 0.0
         self._reassert_at = 0.0
         self._stop = threading.Event()
@@ -192,6 +208,16 @@ class Engine:
         if self.images.changed.is_set():          # a downloaded image is ready
             self.images.changed.clear()
             self._dirty = True
+        if self._history and now >= self._sample_at:
+            self._sample_at = now + CHART_SAMPLE_SECONDS
+            for name, samples in self._history.items():
+                samples.append((now, _number(self.state.get(name))))
+            display = self._current_display()
+            if display and display.chart:
+                self._dirty = True
+        if now >= self._display_wake:
+            self._display_wake = math.inf
+            self._dirty = True
         if self._animating and now >= self._next_anim:
             self._next_anim = now + 1 / self.cfg.defaults.animation_fps
             self._dirty = True
@@ -262,6 +288,12 @@ class Engine:
         self.lighting.forget()
         self.images.forget()
         self._jpeg_cache.clear()
+        self._display_cache.clear()
+        self._slides.clear()
+        keep = max((d.history for _, d in cfg.iter_displays() if d.chart), default=0)
+        charted = {name for _, d in cfg.iter_displays() for name in d.chart or []}
+        self._history = {name: deque(self._history.get(name, ()), maxlen=int(keep / CHART_SAMPLE_SECONDS) + 5)
+                         for name in charted}
         for name, page in cfg.pages.items():
             if page.match:
                 log.warning("pages.%s.match: app-based page switching is not implemented yet; ignored", name)
@@ -576,7 +608,9 @@ class Engine:
             if kind not in self.manager.devices:
                 continue
             try:
-                if kind == "keys":
+                if kind == "keys" and (display := self._current_display()):
+                    self._paint_display(display, now)
+                elif kind == "keys":
                     rot = self.cfg.modules.keys.rotate
                     for num in sorted(self._owned):
                         self._write(kind, layout.index_of(kind, num, rot), self.resolve_face(num), self._force)
@@ -586,6 +620,91 @@ class Engine:
                 self.manager.drop(kind)
                 self._module_lost(kind, str(e), now)
         self._dirty = self._force = False
+
+    # -- the keys as one screen ---------------------------------------------
+    def _current_display(self) -> Display | None:
+        page = self.cfg.pages.get(self.current_page) if self.cfg and self.current_page else None
+        return page.display if page else None
+
+    def _display_look(self, d: Display):
+        """(rotate, gap, columns, rows, canvas size, background) of a display as mounted."""
+        rot = self.cfg.modules.keys.rotate
+        gap = self.cfg.modules.keys.gap if d.gap is None else d.gap
+        cols, rows = keydisplay.grid(rot)
+        bg = parse_color(d.bg or self.cfg.defaults.style.bg or "#000000")
+        return rot, gap, cols, rows, keydisplay.canvas_size(cols, rows, gap), bg
+
+    def _display_picture(self, d: Display, now: float):
+        """(source, loaded image or None, frame) a picture display shows now."""
+        src = self._slideshow_picture(d, now)
+        loaded = self.images.get(src) if src else None
+        frame = 0
+        if loaded is not None and loaded.animated:
+            frame = loaded.frame_at(self.clock())
+            self._animating = True
+        return src, loaded, frame
+
+    def display_tiles(self, d: Display, now: float) -> list:
+        """A display's key pictures, upright, in reading order (config numbers 1-15). The
+        device and the editor's previews both draw from this."""
+        rot, gap, cols, rows, size, bg = self._display_look(d)
+        style = self.cfg.defaults.style
+        if d.image:
+            _, loaded, frame = self._display_picture(d, now)
+            canvas = keydisplay.draw_picture(size, loaded.frames[frame] if loaded else None, d.fit, bg)
+        elif d.chart:
+            colors = [parse_color(c) for c in (d.colors or keydisplay.DEFAULT_COLORS)]
+            series = [list(self._history.get(name, ())) for name in d.chart]
+            value_range = None if d.range == "auto" else d.range
+            canvas = keydisplay.draw_chart(size, series, now, d.history, value_range, colors, bg,
+                                           self._template(d.label),
+                                           parse_color(d.label_color or style.label_color or "#ffffff"))
+        else:                                   # text: a letter per key, nothing behind the bezels
+            return keydisplay.draw_letters(cols, rows, self._template(d.text) or "", bg,
+                                           parse_color(d.fg or style.fg or "#ffffff"))
+        return keydisplay.tiles(canvas, cols, rows, gap)
+
+    def _paint_display(self, d: Display, now: float):
+        """Draw the page's display over all 15 keys and send the keys whose picture changed."""
+        dev = self.manager.devices["keys"]
+        rot, gap, _, _, size, bg = self._display_look(d)
+        cache_key, encoded = None, None
+        if d.image:                             # pictures and GIF frames are encoded once
+            src, loaded, frame = self._display_picture(d, now)
+            cache_key = (src if loaded is not None else None, frame, size, d.fit, bg, rot, gap)
+            encoded = self._display_cache.get(cache_key)
+        if encoded is None:
+            turn = layout.image_rotation(rot)
+            encoded = [dev.encode(t.rotate(-turn) if turn else t) for t in self.display_tiles(d, now)]
+            if cache_key is not None:
+                if len(self._display_cache) > 600:      # GIF frames x 15 keys add up
+                    self._display_cache.clear()
+                self._display_cache[cache_key] = encoded
+        for num, data in enumerate(encoded, 1):
+            idx = layout.index_of("keys", num, rot)
+            if self._force or self.shown.get(("keys", idx)) != data:
+                dev.set_image(idx, data)
+                self.shown[("keys", idx)] = data
+
+    def _slideshow_picture(self, d: Display, now: float) -> str | None:
+        """The picture to show: the image itself, or for a folder the current one of its pictures
+        (one every `every` seconds, in name order or shuffled), waking the engine for the next."""
+        if is_url(d.image) or not Path(d.image).is_dir():
+            return d.image
+        listed_at, files = self._slides.get(d.image, (-math.inf, []))
+        if now - listed_at > d.every:                   # notice pictures added to the folder
+            files = slideshow_files(Path(d.image))
+            self._slides[d.image] = (now, files)
+        if not files:
+            return None
+        n = int(now // d.every)
+        self._display_wake = min(self._display_wake, (n + 1) * d.every)
+        i = n % len(files)
+        if d.shuffle:                                   # a fresh order every round through the folder
+            order = list(range(len(files)))
+            random.Random(n // len(files)).shuffle(order)
+            i = order[i]
+        return str(files[i])
 
     # -- modules -----------------------------------------------------------
     def _init_module(self, kind: str, now: float):

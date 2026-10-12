@@ -4,7 +4,7 @@ A Stream-Deck-style controller for the whole **Cooler Master MasterHub** family:
 
 | module | what hubdeck does with it |
 | --- | --- |
-| **15-key screen module** | Each key gets a face (a [Tabler icon](https://tabler.io/icons), label, live text, picture or animated GIF) and actions. |
+| **15-key screen module** | Each key gets a face (a [Tabler icon](https://tabler.io/icons), label, live text, picture or animated GIF) and actions. Or all 15 together show [one picture, GIF, chart or text](#the-15-keys-as-one-display). |
 | **Dial with round screen** | Turn it to adjust a value, press it for actions, and show a face with a value gauge, picture or GIF. |
 | **3 knobs, 2 rollers, 5 faders** | Volumes (system, microphone, per app) or any action, with knob and fader LEDs that can follow the value. |
 | **Base** | RGB lighting that reacts to state, for example red and breathing while you're muted. |
@@ -305,6 +305,34 @@ These share the same fields.
   - Labels on top of pictures get an outline so they stay readable.
   - GIFs play at their own speed, capped by `defaults.animation_fps` (default 30).
 - **Icons:** search with `hubdeck icons <word>`, or browse at https://tabler.io/icons.
+
+### The 15 keys as one display
+
+A page's `display:` turns the 15-key module into one screen. It shows a picture or GIF, a chart, or text:
+
+```yaml
+pages:
+  memes:
+    display: {image: memes}                  # a folder: a slideshow, one picture every 10 s
+    keys: {15: {action: page.back}}          # keys still do things; their faces aren't shown
+  nyan:
+    display: {image: "https://media1.tenor.com/m/zBc1XhcbTSoAAAAC/nyan-cat-rainbow.gif"}
+  stats:
+    display: {chart: [system.cpu, system.ram], history: 60, label: "CPU\n{system.cpu:.0f}%"}
+  clock:
+    display: {text: "{system.time:%H:%M}\n{system.time:%a}"}
+```
+
+- **Pictures** (`image`): a file, a folder or an `http(s)` URL, as for faces. Animated GIFs play at up to about 28 frames per second, which is what the module takes.
+  - `fit: cover` (default) fills the module and trims the edges; `contain` shows the whole picture.
+  - A **folder** is a slideshow, in name order. `every: 10` sets the seconds per picture, and `shuffle: true` mixes the order. Pictures added to the folder join in.
+- **Charts** (`chart`): one state or a list of them, e.g. `system.cpu`, drawn over the last `history` seconds (default 60) and recorded once a second.
+  - `range: [0, 100]` (default) or `auto` to fit the values; `colors:` gives one colour per line (default: `accent`, white, red, amber).
+  - `label` puts small live text in the top-left key. Text needs a key of its own to stay readable.
+- **Text** (`text`): **one letter per key**. Text spread across several keys doesn't read, because the bezels hide too much of it. Lines are centred, and `\n` starts a new one. A line longer than 5 letters (3 when the module is mounted sideways) wraps, and up to 15 letters fit. `{templates}` work as on faces.
+- **Bezels:** pictures and charts leave out the strips behind the bezels, `modules.keys.gap` pixels wide (default 22), so lines and shapes continue straight from key to key. `gap:` on a display overrides it there.
+- **Colours:** `bg`, `fg` (text) and `label_color`, as on faces.
+- **More:** a page with a display makes hubdeck draw all 15 keys, on every page. The editor shows each key's part of a display; the `display:` itself is set in the config file for now.
 
 ### Faders
 

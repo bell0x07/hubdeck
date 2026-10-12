@@ -16,6 +16,7 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
 - **`engine.py`** is the main loop:
   - manager events → gestures (`gestures.py`), turns and faders (soft takeover)
   - plugin states → faces (`render/faces.py`, `render/images.py`)
+  - a page's `display` (`render/display.py`): the 15 keys as one screen. `Engine.display_tiles()` makes its key pictures for the device and the editor's previews; charts record their states once a second (`_history`).
   - lighting (`lighting.py`), hot reload
   - `def_for(kind, index)` is the one place that maps a module index to the current page's definition.
 - **`platforms/`:** every OS-specific call. Nothing outside it branches on `sys.platform` (the editor only passes it to the browser).
@@ -47,6 +48,10 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
 - **Input frames** are `01 <tag> <len u16> <event> <len> data`. Tags: M0 `0x2a`, 15-key `0x34`, Dial `0x44`.
 - **Knob LED index = input index.** Default numbering is reading order: knobs 1 = top, 2 = bottom-left, 3 = bottom-right; rollers 1 = left. The Dial's turn byte is inverted compared with the knobs (`00` = clockwise).
 - **MasterHUB, including its elevated `MHDaemon`, fights over the modules.** It must be closed for hardware tests.
+- **15 keys as one display:**
+  - The bezel between key screens is about 22 px both ways.
+  - A full 15-key frame sends in about 36 ms (about 28 fps).
+  - Text across keys doesn't read, so a text display puts one letter per key (`docs/protocol/m4315.md`).
 
 ## Gotchas
 

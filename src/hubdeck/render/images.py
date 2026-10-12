@@ -22,6 +22,18 @@ MAX_FRAMES = 300
 MIN_FRAME_SECONDS = 0.02        # GIFs with 0/10 ms delays are meant to be ~50 fps at most
 
 
+PICTURE_TYPES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+
+def slideshow_files(folder: Path) -> list[Path]:
+    """The pictures in a folder, in name order (a display's slideshow)."""
+    try:
+        return sorted((p for p in folder.iterdir() if p.suffix.lower() in PICTURE_TYPES and p.is_file()),
+                      key=lambda p: p.name.lower())
+    except OSError:
+        return []
+
+
 def is_url(src: str) -> bool:
     return src.lower().startswith(("http://", "https://"))
 
