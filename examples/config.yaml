@@ -129,7 +129,7 @@ pages:
       2: {target: audio.mic_volume}
       3: {target: audio.app_volume, arg: spotify.exe}
       4: {target: audio.app_volume, arg: discord.exe}
-      5: {target: audio.app_volume, arg: chrome.exe}
+      5: {target: audio.app_volume, arg: ms-teams.exe}   # also what it starts: Teams plays through WebView2
 
   media:
     match: [spotify.exe, {title: YouTube}]  # shown while Spotify or a YouTube window has focus

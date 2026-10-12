@@ -53,7 +53,7 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
 
 ## Gotchas
 
-- **pycaw:** `AudioUtilities.GetMicrophone()` returns a raw `IMMDevice`, so wrap it with `CreateDevice`. Per-app volume goes through `GetAllSessions()`, matched by process name.
+- **pycaw:** `AudioUtilities.GetMicrophone()` returns a raw `IMMDevice`, so wrap it with `CreateDevice`. Per-app volume goes through `GetAllSessions()`, matched by the session process's name or an ancestor's, up to the first one under `%SystemRoot%` (new Teams plays through a `msedgewebview2.exe` it starts). Ancestors are looked up once per process (pid and start time), since values are read every 0.5 s.
 - **Media sessions (Windows):** pywinrt's `GlobalSystemMediaTransportControlsSessionManager`; `.get()` blocks on an async call, so the reader lives on the `media` plugin's thread, which `WinMedia` puts in the MTA. A session names its app by AppUserModelID: a Start menu id (`Brave`, resolved through `shell:AppsFolder`) or the process (`Spotify.exe`).
 - **LED colours need gamma correction** (`defaults.led_gamma` 2.2). Without it, green shows turquoise and red shows pink.
 - **Discord:** the app must have exactly one redirect, `http://localhost`. Voice RPC only works for the app owner and whitelisted testers.

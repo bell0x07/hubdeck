@@ -425,7 +425,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
     face_unknown: {icon: player-play, label: "-"}     # nothing open
   ```
 - **Hold to mute:** put `on_down: discord.hold_mute_start` and `on_up: discord.hold_mute_end` on one key. This works even if you switch pages while holding it.
-- **App volume:** applies to every audio session of that process. An app that isn't playing audio has no value, so faders don't take it over.
+- **App volume:** applies to every audio session of that process, and of the processes it started: `ms-teams.exe` also covers the `msedgewebview2.exe` that new Teams plays through, and `steam.exe` the games started from Steam. Windows' own processes, such as Explorer, don't count, so `explorer.exe` doesn't take in every app you open. An app that isn't playing audio has no value, so faders don't take it over.
 
 ### Python actions
 
