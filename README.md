@@ -290,6 +290,7 @@ These share the same fields.
     - Add `expo` (0–1, like an RC transmitter's expo) to make clicks finer near 0 and coarser near 100. Going from 0 to 100 still takes 100/`step` clicks. With `step: 2, expo: 0.5`, clicks are about 1% at the bottom and 4% at the top. 0 (the default) gives even clicks.
   - `turn: {cw: action, ccw: action}` runs actions per click (clockwise = up/right for rollers).
   - `turn: audio.volume` is short for a target.
+- **After a turn:** `on_turn` runs actions after each turn of the Dial, a knob or a roller, once the `turn` target is adjusted or its `cw`/`ccw` actions have run. A fast spin can arrive as one turn of several clicks. To show a knob's value on the Dial while you turn it, see [Controlling hubdeck from Python](#controlling-hubdeck-from-python).
 - **State:** `state: plugin.state` uses `face_on` while the value is true and `face_unknown` while it's unknown, for example when Discord is closed. Fields you don't set in the overlay are taken from `face`.
 - **Pages:** each page can have its own `dial`, `knobs`, `rollers` and `faders` sections. A page without one uses the start page's section.
 - **Going home by itself:** `home_after: {idle: 60, press: 15}` on a page takes it back to the start page once it's left alone.
@@ -482,7 +483,7 @@ The code also gets `deck`, which reaches every module, numbered like in the conf
 
 | method | what it does |
 | --- | --- |
-| `set_face(page=None, replace=False, **fields)` | change the face, with the config's face fields: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `gauge`, `image`, `image_fit`. `replace=True` shows only these fields instead of the config's face |
+| `set_face(page=None, replace=False, value_of=None, seconds=None, **fields)` | change the face, with the config's face fields: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `gauge`, `image`, `image_fit`. `replace=True` shows only these fields instead of the config's face. `value_of=deck.knobs[2]` makes `{value}` and `gauge` show that control's value, kept up to date, instead of this one's. `seconds=1.5` brings the config's face back after that long |
 | `clear_face(page=None)` | go back to the config's face |
 | `face(page=None)` | what it shows, with live text filled in: `.icon`, `.label`, `.text`, `.bg` (as `(r, g, b)`) and the other face fields. `None` if hubdeck doesn't draw it |
 | `press(page=None, gesture="press")` | run the actions the config gives it, as if it was pressed. `gesture` can also be `down`, `up`, `long_press` or `double_press` |
@@ -526,11 +527,23 @@ On `deck` itself:
 
 - **Faces** set from Python sit on top of the config's face for that key or Dial on that page, including `face_on` and `face_unknown`. They last through config reloads, until they're cleared or hubdeck restarts. Fields you leave out keep their value. `None` resets a field to the config's value, and `""` hides a label, text or icon.
 - **`replace=True`** sets the whole face: the config's faces and fields set earlier are dropped, and only `defaults.style` stays underneath. Use it to show something unrelated, like a counter on a Dial whose config face is a volume icon with a gauge. Later calls without `replace` merge into it, and `clear_face` brings the config's face back.
+- **`seconds`:** each `set_face` on the same key or Dial decides again. Another call with `seconds` restarts the countdown, and one without keeps the face until it's cleared.
 - **Lighting** set from Python sits on top of the config's `lighting:` for that LED, on every page, with the same rules for fields.
 - **Pages:** `page` defaults to the page of the control that started the code, so slow code still updates its own page after you switch. Code with no control behind it, such as a thread you start yourself, uses the page on screen.
 - **Unused controls:** setting a face or a light on something the config doesn't use makes hubdeck take it over, opening its module if needed, even in `shared` mode. Clearing a key's face hands the key back.
 - **Images:** `image` takes what the config takes (a file, relative to the config's folder, an `http(s)` URL or a `{vars.…}` template), or a picture made in code: a PIL image, or image bytes such as a PNG or an animated GIF. Pictures made in code are kept in memory while a face uses them.
 - **Timing:** changes are queued and hubdeck applies them in order within about 10 ms. Bad arguments, like an unknown icon, page or control, raise straight away.
+- **A knob on the Dial:** with `on_turn`, each knob can show what it changes on the Dial while you turn it, then let the Dial's own face come back. `deck.control` is the knob that was turned:
+
+  ```yaml
+  knobs:
+    1:
+      turn: audio.volume
+      on_turn: {python: 'deck.dial.set_face(icon="volume", label="{value}%", gauge=True, value_of=deck.control, replace=True, seconds=1.5)'}
+    2:
+      turn: {target: spotify.volume, step: 2}
+      on_turn: {python: 'deck.dial.set_face(icon="brand-spotify", label="{value}%", gauge=True, value_of=deck.control, replace=True, seconds=1.5)'}
+  ```
 - **Plugins:** `deck.run` starts any plugin the config doesn't use yet. A plugin's states only exist while it runs, so to read one from Python that nothing else uses, list the plugin under `plugins:`, for example `system:`.
 
 ### Discord setup

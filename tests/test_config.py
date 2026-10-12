@@ -68,6 +68,7 @@ def test_missing_secret(write):
     ("keys: {1: {colour: red}}", "colour"),
     ("{}", "nothing defined"),
     ("keys: {1: {action: discord.mute}}\nplugins: {discord: {}}", "client_id is required"),
+    ("knobs: {1: {action: rec.a, on_turn: rec.b}}", "on_turn runs after a turn"),
     ("knobs: {1: {turn: spotify.volume}}", "spotify.client_id is required"),      # no plugins section
     ("knobs: {1: {turn: {target: spotify.volume, arg: x}}}\nplugins: {spotify: {client_id: c}}", "takes no arg"),
     ("keys: {1: {action: spotify.volume_up}}\nplugins: {spotify: {client_id: c, redirect_uri: 'http://localhost:1/x'}}",

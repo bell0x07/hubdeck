@@ -76,18 +76,26 @@ class Control:
 
 
 class _Screen(Control):
-    def set_face(self, page: str | None = None, *, replace: bool = False, **fields):
+    def set_face(self, page: str | None = None, *, replace: bool = False, value_of: Control | None = None,
+                 seconds: float | None = None, **fields):
         """Change the face. Fields are the config's face fields (icon, filled, label, text, bg,
         fg, label_color, font_size, gauge, image, image_fit); `image` may also be a PIL image or
         image bytes. They go on top of the config's face; fields left out keep their value,
         None resets one to the config's. replace=True drops the config's face and earlier
-        fields: it shows just these, over defaults.style."""
+        fields: it shows just these, over defaults.style. value_of=deck.knobs[2]: {value} and
+        the gauge show that control's value, live, instead of this one's. seconds: the face
+        goes back to the config's after that long; a later set_face decides again."""
         page = self._deck._page(page)
+        if value_of is not None and not isinstance(value_of, (_Turnable, Fader)):
+            raise ValueError(f"value_of must be a dial, knob, roller or fader, e.g. deck.knobs[2], not {value_of!r}")
+        if seconds is not None and (isinstance(seconds, bool) or not isinstance(seconds, (int, float))
+                                    or seconds <= 0):
+            raise ValueError(f"seconds must be a number above 0, not {seconds!r}")
         image = fields.pop("image", _UNSET)
         values = _fields(Face, fields, "face")
         if image is not _UNSET:
             values["image"] = None if image is None else self._deck._image(image)
-        self._engine.set_face(page, self._id, values, replace)
+        self._engine.set_face(page, self._id, values, replace, value_of._id if value_of else None, seconds)
 
     def clear_face(self, page: str | None = None):
         """Go back to the config's face."""

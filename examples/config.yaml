@@ -120,7 +120,9 @@ pages:
     knobs:                                 # 1 = top, 2 = bottom-left, 3 = bottom-right
       1: {turn: {target: audio.app_volume, arg: discord.exe, expo: 0.5}}
       2: {turn: {target: audio.mic_volume, expo: 0.5}, action: {audio.toggle_mute: microphone}}
-      3: {turn: {target: spotify.volume, step: 2}}   # Spotify's own slider, not its mixer level
+      3:                                   # Spotify's own slider, not its mixer level; the Dial shows it while turning
+        turn: {target: spotify.volume, step: 2}
+        on_turn: {python: 'deck.dial.set_face(icon="brand-spotify", label="{value}%", gauge=True, value_of=deck.control, replace=True, seconds=1.5)'}
 
     rollers:                               # 1 = left, 2 = right
       1: {turn: {cw: {media: next}, ccw: {media: prev}}}

@@ -37,6 +37,8 @@ FADER_ECHO_SECONDS = 1.0                          # a target value this recent f
 FOCUS_SETTLE = 0.3                                # a window must keep focus this long to switch pages
 RECENT_WINDOWS = 20                               # focused windows remembered for the editor's picker
 REPLACE = "replace"                               # in a runtime face: it replaces the config's faces
+VALUE_OF = "value_of"                             # in a runtime face: {value} and gauge follow this control
+_UNSET = object()
 Control = tuple[str, int]                         # (module, config number), e.g. ("knobs", 2); dial, base: 1
 Source = tuple[str, str, int]                     # (page, module, number) an action comes from
 
@@ -96,6 +98,7 @@ class Engine:
         self._owned: set[int] = set()                             # 1-based key numbers
         # set at runtime (deck); controls are (module, config number)
         self.overrides: dict[str, dict[Control, dict[str, Any]]] = {}   # page -> screen -> face fields
+        self.override_until: dict[tuple[str, Control], float] = {}      # (page, screen) -> when its face goes
         self.light_overrides: dict[Control, dict[str, Any]] = {}       # LED -> lighting fields
         self.brightness: dict[str, int] = {}                           # screen -> backlight
         self.firing: Source | None = None            # where the action being invoked comes from
@@ -181,11 +184,15 @@ class Engine:
         self.call(self._move_fader, page, number, value)
 
     def set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None,
-                 replace: bool = False):
+                 replace: bool = False, value_of: Control | None = None, seconds: float | None = None):
         """Merge `fields` into the runtime face of a key or the dial (None values reset to the
         config's); replace=True makes `fields` the whole face, over the default style only.
-        fields=None removes it (control=None: every screen on the page)."""
-        self.call(self._set_face, page, control, fields, replace)
+        value_of: {value} and gauge follow that control's value instead. seconds: the face
+        goes after that long (a later set_face decides again). fields=None removes it
+        (control=None: every screen on the page)."""
+        if value_of is not None:
+            fields = {**(fields or {}), VALUE_OF: value_of}
+        self.call(self._set_face, page, control, fields, replace, seconds)
 
     def set_light(self, control: Control, fields: dict[str, Any] | None):
         """Merge `fields` into the runtime lighting of an LED (None values reset to the config's);
@@ -314,6 +321,9 @@ class Engine:
             for i, ev in tracker.tick(now):
                 self._fire(kind, i, ev)
         self._drain_states()
+        for (page, screen), until in list(self.override_until.items()):
+            if now >= until:
+                self._set_face(page, screen, None)
         if self.focus_source is not None:
             self._poll_focus(now)
         if (accent := accent_color()) != self._accent:
@@ -392,6 +402,7 @@ class Engine:
         self.images.forget()
         self._jpeg_cache.clear()
         self.overrides = {p: keys for p, keys in self.overrides.items() if p in cfg.pages}
+        self.override_until = {k: t for k, t in self.override_until.items() if k[0] in cfg.pages}
         self._update_owned(old.modules.keys.rotate if old is not None else None)
         # modules: open what the config uses, release the rest (MasterHUB may have them)
         self.manager.wanted = cfg.used_modules() | self._runtime_modules()
@@ -654,10 +665,12 @@ class Engine:
                 plugin.adjust(n, t.arg, steps * t.step, t.expo)
             except Exception as e:
                 log.error("%s: adjust failed: %s", t.target, e)
-            return
-        for _ in range(abs(steps)):
-            for action in (t.cw if steps > 0 else t.ccw):
-                self._invoke(action, source)
+        else:
+            for _ in range(abs(steps)):
+                for action in (t.cw if steps > 0 else t.ccw):
+                    self._invoke(action, source)
+        for action in cd.on_turn:
+            self._invoke(action, source)
 
     def _move_fader(self, page: str, number: int, value: float):
         fd = self.def_on(page, ("faders", number)) if page in self.cfg.pages else None
@@ -793,10 +806,14 @@ class Engine:
         return None
 
     def _set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None,
-                  replace: bool = False):
+                  replace: bool = False, seconds: float | None = None):
         if page not in self.cfg.pages:
             return
         faces = self.overrides.setdefault(page, {})
+        for screen in list(faces) if control is None else [control]:
+            self.override_until.pop((page, screen), None)
+        if fields is not None and seconds:
+            self.override_until[(page, control)] = self.clock() + seconds
         if fields is not None:
             if isinstance(fields.get("image"), LoadedImage):     # a picture made in code
                 fields = {**fields, "image": self.images.put(fields["image"])}
@@ -843,15 +860,18 @@ class Engine:
             except DeviceError as e:
                 log.warning("%s lighting write failed: %s", kind, e)
 
-    def face_for(self, kd: KeyDef | None, override: dict[str, Any] | None = None) -> RenderFace:
+    def face_for(self, kd: KeyDef | None, override: dict[str, Any] | None = None,
+                 value: Any = _UNSET) -> RenderFace:
         """The face for a definition, with `override` (fields set at runtime) on top, or instead
-        of the definition's faces when it holds REPLACE."""
+        of the definition's faces when it holds REPLACE. {value} and the gauge show `value`,
+        by default the definition's turn target's."""
         if kd is None and override is None:
             return BLANK
         merged = self.cfg.defaults.style.model_dump(exclude_none=True)
-        if override is not None and REPLACE in override:
-            override = {k: v for k, v in override.items() if k != REPLACE}
-        elif kd is not None:
+        replace = override is not None and REPLACE in override
+        if override is not None:
+            override = {k: v for k, v in override.items() if k not in (REPLACE, VALUE_OF)}
+        if not replace and kd is not None:
             merged.update(kd.face.model_dump(exclude_unset=True))
             if kd.state:
                 value = self.state.get(kd.state)
@@ -860,7 +880,8 @@ class Engine:
                     merged.update(overlay.model_dump(exclude_unset=True))
         if override is not None:
             merged.update(override)
-        value = self.target_value(kd)
+        if value is _UNSET:
+            value = self.target_value(kd)
         gauge = merged.get("gauge", False)
         image, frame = merged.get("image"), 0
         if image and "{" in image:              # e.g. {vars.picture}: a picture sent with `hubdeck send image`
@@ -893,7 +914,11 @@ class Engine:
     def screen_face(self, control: Control, page: str | None = None) -> RenderFace:
         """Face of a key or the dial on `page` (default: the one on screen)."""
         page = page or self.current_page
-        return self.face_for(self.def_on(page, control), self.overrides.get(page, {}).get(control))
+        override = self.overrides.get(page, {}).get(control)
+        if override is not None and VALUE_OF in override:          # another control's value
+            return self.face_for(self.def_on(page, control), override,
+                                 self.control_value(page, override[VALUE_OF]))
+        return self.face_for(self.def_on(page, control), override)
 
     def resolve_face(self, num: int, page: str | None = None) -> RenderFace:
         """Face of key `num` (1-based) on `page` (default: the one on screen)."""

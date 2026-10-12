@@ -526,7 +526,7 @@ function turnFields() {
   const verb = cur.section === "rollers" ? "Rolling" : "Turning";
   const modeSel = h("select", { onchange: e => {
     const v = e.target.value;
-    if (v === "") delete cur.raw.turn;
+    if (v === "") delete cur.raw.turn, delete cur.raw.on_turn;     // on_turn needs a turn
     else if (v === "actions") cur.raw.turn = { cw: { media: "next" }, ccw: { media: "prev" } };
     else cur.raw.turn = { target: v, step: 2, ...(v === "audio.app_volume" ? { arg: AUDIO.apps[0] || "Spotify" } : {}) };
     changed(); buildForm(); } },
@@ -547,6 +547,8 @@ function turnFields() {
     out.push(field(cur.section === "rollers" ? "Up / right" : "Clockwise", actionEditor("cw", turnObj)),
       field(cur.section === "rollers" ? "Down / left" : "Counter-clockwise", actionEditor("ccw", turnObj)));
   }
+  if (mode) out.push(field("After each turn", actionEditor("on_turn")),
+    h("p", { class: "muted" }, "For example Python that shows the value on the Dial: deck.dial.set_face(…, value_of=deck.control, seconds=1.5)."));
   return out;
 }
 

@@ -194,6 +194,7 @@ class TurnDef(_Model):
 class ControlDef(KeyDef):
     """A dial, knob or roller: press gestures like a key, plus turning."""
     turn: TurnDef | None = None
+    on_turn: list[Action] = []         # after each turn, once its target is adjusted (or cw/ccw ran)
 
     @model_validator(mode="before")
     @classmethod
@@ -203,9 +204,20 @@ class ControlDef(KeyDef):
             data["turn"] = {"target": data["turn"]}
         return data
 
+    @field_validator("on_turn", mode="before")
+    @classmethod
+    def _on_turn(cls, v):
+        return parse_actions(v)
+
+    @model_validator(mode="after")
+    def _on_turn_needs_turn(self):
+        if self.on_turn and self.turn is None:
+            raise ValueError("on_turn runs after a turn: add 'turn' (a target, or cw/ccw actions)")
+        return self
+
     def all_actions(self) -> list[Action]:
         extra = (self.turn.cw + self.turn.ccw) if self.turn else []
-        return super().all_actions() + extra
+        return super().all_actions() + extra + self.on_turn
 
     def press_actions(self) -> list[Action]:
         return super().all_actions()
