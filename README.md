@@ -402,7 +402,7 @@ The code also gets `deck`, which reaches every module, numbered like in the conf
 
 | method | what it does |
 | --- | --- |
-| `set_face(page=None, **fields)` | change the face, with the config's face fields: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `gauge`, `image`, `image_fit` |
+| `set_face(page=None, replace=False, **fields)` | change the face, with the config's face fields: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `gauge`, `image`, `image_fit`. `replace=True` shows only these fields instead of the config's face |
 | `clear_face(page=None)` | go back to the config's face |
 | `face(page=None)` | what it shows, with live text filled in: `.icon`, `.label`, `.text`, `.bg` (as `(r, g, b)`) and the other face fields. `None` if hubdeck doesn't draw it |
 | `press(page=None, gesture="press")` | run the actions the config gives it, as if it was pressed. `gesture` can also be `down`, `up`, `long_press` or `double_press` |
@@ -436,13 +436,14 @@ On `deck` itself:
       from PIL import Image, ImageDraw
       img = Image.new("RGB", (240, 240), "black")
       ImageDraw.Draw(img).ellipse((30, 30, 210, 210), fill="orange")
-      deck.dial.set_face(image=img, label="Sun")     # draw on the Dial
+      deck.dial.set_face(image=img, label="Sun", replace=True)   # draw on the Dial
       deck.knobs[1].set_light(color="orange")        # light knob 1 and the Base to match
       deck.base.set_light(color="orange")
   face: {icon: sun, label: Sun}
 ```
 
 - **Faces** set from Python sit on top of the config's face for that key or Dial on that page, including `face_on` and `face_unknown`. They last through config reloads, until they're cleared or hubdeck restarts. Fields you leave out keep their value. `None` resets a field to the config's value, and `""` hides a label, text or icon.
+- **`replace=True`** sets the whole face: the config's faces and fields set earlier are dropped, and only `defaults.style` stays underneath. Use it to show something unrelated, like a counter on a Dial whose config face is a volume icon with a gauge. Later calls without `replace` merge into it, and `clear_face` brings the config's face back.
 - **Lighting** set from Python sits on top of the config's `lighting:` for that LED, on every page, with the same rules for fields.
 - **Pages:** `page` defaults to the page of the control that started the code, so slow code still updates its own page after you switch. Code with no control behind it, such as a thread you start yourself, uses the page on screen.
 - **Unused controls:** setting a face or a light on something the config doesn't use makes hubdeck take it over, opening its module if needed, even in `shared` mode. Clearing a key's face hands the key back.

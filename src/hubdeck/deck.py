@@ -76,17 +76,18 @@ class Control:
 
 
 class _Screen(Control):
-    def set_face(self, page: str | None = None, **fields):
+    def set_face(self, page: str | None = None, *, replace: bool = False, **fields):
         """Change the face. Fields are the config's face fields (icon, filled, label, text, bg,
         fg, label_color, font_size, gauge, image, image_fit); `image` may also be a PIL image or
         image bytes. They go on top of the config's face; fields left out keep their value,
-        None resets one to the config's."""
+        None resets one to the config's. replace=True drops the config's face and earlier
+        fields: it shows just these, over defaults.style."""
         page = self._deck._page(page)
         image = fields.pop("image", _UNSET)
         values = _fields(Face, fields, "face")
         if image is not _UNSET:
             values["image"] = None if image is None else self._deck._image(image)
-        self._engine.set_face(page, self._id, values)
+        self._engine.set_face(page, self._id, values, replace)
 
     def clear_face(self, page: str | None = None):
         """Go back to the config's face."""
@@ -277,8 +278,8 @@ class Deck:
         self._engine.home()
 
     # -- keys (shortcuts for deck.keys[n]) -------------------------------
-    def set_face(self, key: int, page: str | None = None, **fields):
-        self.keys[key].set_face(page, **fields)
+    def set_face(self, key: int, page: str | None = None, *, replace: bool = False, **fields):
+        self.keys[key].set_face(page, replace=replace, **fields)
 
     def clear_face(self, key: int, page: str | None = None):
         self.keys[key].clear_face(page)

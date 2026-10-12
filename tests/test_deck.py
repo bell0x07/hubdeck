@@ -45,6 +45,23 @@ def test_set_face_overrides_config_and_clear_restores(write):
     assert dev.images[0] == before
 
 
+def test_set_face_replace_drops_the_config_face_and_earlier_fields(write):
+    eng, dev, _ = make(write, CONFIG)
+    eng.deck.set_face(1, bg="red")
+    eng.deck.set_face(1, replace=True, text="5")
+    eng.step()
+    face = eng.resolve_face(1)
+    assert (face.text, face.label, face.bg) == ("5", None, (25, 25, 30))
+    eng.deck.set_face(1, label="n")                # later calls merge, still without the config's face
+    eng.deck.set_face(1, text=None)                # None resets to the default style, not the config
+    eng.step()
+    face = eng.resolve_face(1)
+    assert (face.text, face.label) == (None, "n")
+    eng.deck.clear_face(1)
+    eng.step()
+    assert eng.resolve_face(1).label == "One"
+
+
 def test_set_face_on_unused_key_paints_and_releases_it(write):
     eng, dev, _ = make(write, CONFIG)
     assert 9 not in dev.images

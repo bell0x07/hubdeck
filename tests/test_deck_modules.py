@@ -49,6 +49,17 @@ def test_dial_face(write):
     assert eng.deck.dial.face().label == "Dial" and devs["dial"].images[0] == before
 
 
+def test_dial_face_replace_hides_the_config_icon(write):
+    eng, devs, _ = make(write, CONFIG, ALL)
+    eng.deck.dial.set_face(text="3", label="presses")
+    eng.step()
+    assert eng.deck.dial.face().icon == "volume"     # merged: the config's icon stays
+    eng.deck.dial.set_face(replace=True, text="3", label="presses")
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.text, face.label) == (None, "3", "presses")
+
+
 def test_dial_face_opens_the_dial_when_the_config_has_none(write):
     eng, devs, _ = make(write, "keys: {1: {face: {label: x}}}\n", ALL)
     assert "dial" not in eng.manager.devices

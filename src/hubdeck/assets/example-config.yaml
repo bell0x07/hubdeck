@@ -69,7 +69,8 @@ pages:
             count = globals().get("count", 0) + 1
             color = "#c81e28" if count % 2 else "#3cc86e"
             deck.set_face(8, text=str(count), bg=color)            # another key
-            deck.dial.set_face(text=str(count), label="presses")   # the Dial's round screen
+            deck.dial.set_face(text=str(count), label="presses",   # the Dial; replace: instead of
+                               replace=True)                       # its config face, not on top
             for led in [deck.base, *deck.knobs, *deck.faders]:     # every LED
                 led.set_light(color=color)
             log.info("count %d - knob 1 held: %s, fader 1 at: %s, roller 2 value: %s", count,

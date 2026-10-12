@@ -33,6 +33,7 @@ PRESSABLE = {"keys": 15, "dial": 1, "knobs": 3}   # modules whose controls have 
 SCREENS = ("keys", "dial")
 TAKEOVER_WINDOW = 4                               # faders pick up the value within +/- this
 FADER_ECHO_SECONDS = 1.0                          # a target value this recent from the fader is its own echo
+REPLACE = "replace"                               # in a runtime face: it replaces the config's faces
 Control = tuple[str, int]                         # (module, config number), e.g. ("knobs", 2); dial, base: 1
 Source = tuple[str, str, int]                     # (page, module, number) an action comes from
 
@@ -153,10 +154,12 @@ class Engine:
         """Set what fader `number` controls on `page` to `value` (0-100), as if moved there."""
         self.call(self._move_fader, page, number, value)
 
-    def set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None):
+    def set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None,
+                 replace: bool = False):
         """Merge `fields` into the runtime face of a key or the dial (None values reset to the
-        config's); fields=None removes it (control=None: every screen on the page)."""
-        self.call(self._set_face, page, control, fields)
+        config's); replace=True makes `fields` the whole face, over the default style only.
+        fields=None removes it (control=None: every screen on the page)."""
+        self.call(self._set_face, page, control, fields, replace)
 
     def set_light(self, control: Control, fields: dict[str, Any] | None):
         """Merge `fields` into the runtime lighting of an LED (None values reset to the config's);
@@ -663,14 +666,16 @@ class Engine:
             return self.state.get(f"{p}.{value_state(n, kd.turn.arg)}")
         return None
 
-    def _set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None):
+    def _set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None,
+                  replace: bool = False):
         if page not in self.cfg.pages:
             return
         faces = self.overrides.setdefault(page, {})
         if fields is not None:
             if isinstance(fields.get("image"), LoadedImage):     # a picture made in code
                 fields = {**fields, "image": self.images.put(fields["image"])}
-            merged = {k: v for k, v in {**faces.get(control, {}), **fields}.items() if v is not None}
+            base = {REPLACE: True} if replace else faces.get(control, {})   # later merges keep REPLACE
+            merged = {k: v for k, v in {**base, **fields}.items() if v is not None}
             if merged:
                 faces[control] = merged
             else:
@@ -713,11 +718,14 @@ class Engine:
                 log.warning("%s lighting write failed: %s", kind, e)
 
     def face_for(self, kd: KeyDef | None, override: dict[str, Any] | None = None) -> RenderFace:
-        """The face for a definition, with `override` (fields set at runtime) on top."""
+        """The face for a definition, with `override` (fields set at runtime) on top, or instead
+        of the definition's faces when it holds REPLACE."""
         if kd is None and override is None:
             return BLANK
         merged = self.cfg.defaults.style.model_dump(exclude_none=True)
-        if kd is not None:
+        if override is not None and REPLACE in override:
+            override = {k: v for k, v in override.items() if k != REPLACE}
+        elif kd is not None:
             merged.update(kd.face.model_dump(exclude_unset=True))
             if kd.state:
                 value = self.state.get(kd.state)
