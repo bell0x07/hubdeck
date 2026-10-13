@@ -394,7 +394,7 @@ def test_audio_app_volume_follows_the_focused_app(monkeypatch):
     from types import SimpleNamespace
     from hubdeck.platforms import AudioBackend
     from hubdeck.plugins import audio
-    from hubdeck.plugins.base import PluginContext, value_state
+    from hubdeck.plugins.base import PluginContext, muted_state, value_state
 
     class Backend(AudioBackend):
         def __init__(self):
@@ -436,6 +436,11 @@ def test_audio_app_volume_follows_the_focused_app(monkeypatch):
     plugin.handle("toggle_mute", {"app": "focused"})               # the focused app: the game
     plugin.handle("toggle_mute", {"app": "Discord.exe"})
     assert plugin.backend.muted == {"Discord.exe": True, "game.exe": True}
+    assert states[muted_state("app_volume", "focused")] is True    # published next to the value
+    deck.focused = None
+    plugin.tick()
+    assert states[muted_state("app_volume", "focused")] is None
+    deck.focused = SimpleNamespace(app="game.exe", title="")
     plugin.handle("toggle_mute", {"app": "focused"})
     plugin.handle("mute", {"app": "Discord.exe"})                  # already muted: stays
     assert plugin.backend.muted == {"Discord.exe": True, "game.exe": False}

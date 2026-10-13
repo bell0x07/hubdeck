@@ -3,7 +3,7 @@
 import pytest
 
 from hubdeck.device import layout
-from hubdeck.plugins.base import value_state
+from hubdeck.plugins.base import muted_state, value_state
 from test_controls import make
 from test_engine import wait_for
 
@@ -182,6 +182,8 @@ def test_base_and_fader_lighting_open_their_modules(write):
     (lambda d: d.knobs[1].press(gesture="long_press"), "no on_long_press"),
     (lambda d: d.dial.set_face(value_of=d.keys[1]), "value_of must be a dial, knob, roller or fader"),
     (lambda d: d.dial.set_face(label="x", seconds=0), "seconds must be a number above 0"),
+    (lambda d: d.dial.set_face(muted="MUTED"), "muted takes face fields"),
+    (lambda d: d.dial.set_face(muted={"colour": "red"}), "unknown muted face field"),
 ])
 def test_bad_module_calls(write, call, message):
     eng, _, _ = make(write, CONFIG, ALL)
@@ -278,3 +280,28 @@ knobs:
     eng.step()
     face = eng.deck.dial.face()
     assert (face.icon, face.label, face.gauge) == ("volume", "40%", 40)
+
+
+def test_face_shows_when_what_it_shows_is_muted(write, recorder):
+    eng, devs, clock = make(write, CONFIG, ALL)
+    rec(recorder).emit(value_state("app", "spotify.exe"), 70)
+    eng.deck.dial.set_face(icon="brand-spotify", label="{value}%", gauge=True, value_of=eng.deck.knobs[2],
+                           muted={"label": "MUTED", "bg": "#c81e28"}, replace=True)
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.label, face.gauge) == ("brand-spotify", "70%", 70)
+    assert eng.deck.knobs[2].muted() is None                       # the plugin hasn't said
+    rec(recorder).emit(muted_state("app", "spotify.exe"), True)
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.label, face.bg) == ("brand-spotify", "MUTED", (200, 30, 40))
+    assert eng.deck.knobs[2].muted() is True and eng.deck.faders[1].muted() is None
+    rec(recorder).emit(muted_state("app", "spotify.exe"), False)
+    eng.step()
+    assert eng.deck.dial.face().label == "70%"
+
+    eng.deck.dial.set_face(label="{value}", muted={"label": "off"}, replace=True)   # no value_of: its own
+    rec(recorder).emit(value_state("level", None), 40)
+    rec(recorder).emit(muted_state("level", None), True)
+    eng.step()
+    assert eng.deck.dial.face().label == "off"

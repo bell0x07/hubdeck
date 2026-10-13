@@ -77,25 +77,32 @@ class Control:
 
 class _Screen(Control):
     def set_face(self, page: str | None = None, *, replace: bool = False, value_of: Control | None = None,
-                 seconds: float | None = None, **fields):
+                 seconds: float | None = None, muted: dict | None = None, **fields):
         """Change the face. Fields are the config's face fields (icon, filled, label, text, bg,
         fg, label_color, font_size, gauge, image, image_fit); `image` may also be a PIL image or
         image bytes. They go on top of the config's face; fields left out keep their value,
         None resets one to the config's. replace=True drops the config's face and earlier
         fields: it shows just these, over defaults.style. value_of=deck.knobs[2]: {value} and
         the gauge show that control's value, live, instead of this one's. seconds: the face
-        goes back to the config's after that long; a later set_face decides again."""
+        goes back to the config's after that long; a later set_face decides again. muted: face
+        fields used on top while what the face shows (value_of, or its own target) is muted,
+        e.g. {"label": "MUTED", "bg": "#c81e28"}."""
         page = self._deck._page(page)
         if value_of is not None and not isinstance(value_of, (_Turnable, Fader)):
             raise ValueError(f"value_of must be a dial, knob, roller or fader, e.g. deck.knobs[2], not {value_of!r}")
         if seconds is not None and (isinstance(seconds, bool) or not isinstance(seconds, (int, float))
                                     or seconds <= 0):
             raise ValueError(f"seconds must be a number above 0, not {seconds!r}")
+        if muted is not None:
+            if not isinstance(muted, dict):
+                raise ValueError(f"muted takes face fields, e.g. {{'label': 'MUTED'}}, not {muted!r}")
+            muted = {k: v for k, v in _fields(Face, muted, "muted face").items() if v is not None}
         image = fields.pop("image", _UNSET)
         values = _fields(Face, fields, "face")
         if image is not _UNSET:
             values["image"] = None if image is None else self._deck._image(image)
-        self._engine.set_face(page, self._id, values, replace, value_of._id if value_of else None, seconds)
+        self._engine.set_face(page, self._id, values, replace, value_of._id if value_of else None, seconds,
+                              muted)
 
     def clear_face(self, page: str | None = None):
         """Go back to the config's face."""
@@ -140,6 +147,10 @@ class _Turnable(Control):
     def value(self, page: str | None = None) -> Any:
         """Current value (0-100) of its turn target, or None (no target, or unknown yet)."""
         return self._engine.control_value(self._deck._page(page), self._id)
+
+    def muted(self, page: str | None = None) -> bool | None:
+        """Whether what its turn target controls is muted, or None (unknown, or no mute to it)."""
+        return self._engine.control_muted(self._deck._page(page), self._id)
 
 
 class _Lit(Control):
@@ -188,6 +199,10 @@ class Fader(_Lit):
     def value(self, page: str | None = None) -> Any:
         """Current value (0-100) of what it controls, or None (no fader there, or unknown yet)."""
         return self._engine.control_value(self._deck._page(page), self._id)
+
+    def muted(self, page: str | None = None) -> bool | None:
+        """Whether what it controls is muted, or None (unknown, or no mute to it)."""
+        return self._engine.control_muted(self._deck._page(page), self._id)
 
     def move_to(self, value: float, page: str | None = None):
         """Set what it controls to `value` (0-100), as if moved there. The physical fader then

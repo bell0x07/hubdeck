@@ -21,7 +21,7 @@ from .gestures import GestureTracker
 from .lighting import LightingController
 from .platforms import FocusedWindow, Unsupported, current
 from .plugins import REGISTRY, Plugin, PluginContext
-from .plugins.base import value_state
+from .plugins.base import muted_state, value_state
 from .render.images import ImageStore, LoadedImage
 from . import paths
 from .render.faces import BLANK, RenderFace, accent_color, parse_color, render
@@ -38,6 +38,7 @@ FOCUS_SETTLE = 0.3                                # a window must keep focus thi
 RECENT_WINDOWS = 20                               # focused windows remembered for the editor's picker
 REPLACE = "replace"                               # in a runtime face: it replaces the config's faces
 VALUE_OF = "value_of"                             # in a runtime face: {value} and gauge follow this control
+MUTED = "muted"                                   # in a runtime face: fields used while its control is muted
 _UNSET = object()
 Control = tuple[str, int]                         # (module, config number), e.g. ("knobs", 2); dial, base: 1
 Source = tuple[str, str, int]                     # (page, module, number) an action comes from
@@ -184,14 +185,18 @@ class Engine:
         self.call(self._move_fader, page, number, value)
 
     def set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None,
-                 replace: bool = False, value_of: Control | None = None, seconds: float | None = None):
+                 replace: bool = False, value_of: Control | None = None, seconds: float | None = None,
+                 muted: dict[str, Any] | None = None):
         """Merge `fields` into the runtime face of a key or the dial (None values reset to the
         config's); replace=True makes `fields` the whole face, over the default style only.
         value_of: {value} and gauge follow that control's value instead. seconds: the face
-        goes after that long (a later set_face decides again). fields=None removes it
-        (control=None: every screen on the page)."""
+        goes after that long (a later set_face decides again). muted: fields used on top while
+        what the face shows (value_of, or the screen's own target) is muted. fields=None removes
+        it (control=None: every screen on the page)."""
         if value_of is not None:
             fields = {**(fields or {}), VALUE_OF: value_of}
+        if muted is not None:
+            fields = {**(fields or {}), MUTED: muted}
         self.call(self._set_face, page, control, fields, replace, seconds)
 
     def set_light(self, control: Control, fields: dict[str, Any] | None):
@@ -222,6 +227,19 @@ class Engine:
             p, n = d.target.split(".", 1)
             return self.state.get(f"{p}.{value_state(n, d.arg)}")
         return self.target_value(d)
+
+    def control_muted(self, page: str, control: Control) -> bool | None:
+        """Whether what a dial/knob/roller turn or a fader controls on `page` is muted; None if
+        unknown, or if its plugin doesn't say."""
+        d = self.def_on(page, control)
+        if isinstance(d, FaderDef):
+            target, arg = d.target, d.arg
+        elif isinstance(d, ControlDef) and d.turn and d.turn.target:
+            target, arg = d.turn.target, d.turn.arg
+        else:
+            return None
+        p, n = target.split(".", 1)
+        return self.state.get(f"{p}.{muted_state(n, arg)}")
 
     def fader_position(self, number: int) -> int | None:
         """Where fader `number` sits (0-100, up/right = 100), once it has reported."""
@@ -870,7 +888,7 @@ class Engine:
         merged = self.cfg.defaults.style.model_dump(exclude_none=True)
         replace = override is not None and REPLACE in override
         if override is not None:
-            override = {k: v for k, v in override.items() if k not in (REPLACE, VALUE_OF)}
+            override = {k: v for k, v in override.items() if k not in (REPLACE, VALUE_OF, MUTED)}
         if not replace and kd is not None:
             merged.update(kd.face.model_dump(exclude_unset=True))
             if kd.state:
@@ -915,10 +933,13 @@ class Engine:
         """Face of a key or the dial on `page` (default: the one on screen)."""
         page = page or self.current_page
         override = self.overrides.get(page, {}).get(control)
-        if override is not None and VALUE_OF in override:          # another control's value
-            return self.face_for(self.def_on(page, control), override,
-                                 self.control_value(page, override[VALUE_OF]))
-        return self.face_for(self.def_on(page, control), override)
+        if override is None:
+            return self.face_for(self.def_on(page, control), None)
+        source = override.get(VALUE_OF, control)                    # whose value and mute it shows
+        if MUTED in override and self.control_muted(page, source):
+            override = {**override, **override[MUTED]}
+        value = self.control_value(page, source) if VALUE_OF in override else _UNSET
+        return self.face_for(self.def_on(page, control), override, value)
 
     def resolve_face(self, num: int, page: str | None = None) -> RenderFace:
         """Face of key `num` (1-based) on `page` (default: the one on screen)."""

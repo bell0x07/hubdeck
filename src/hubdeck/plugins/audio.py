@@ -4,7 +4,7 @@ The OS side is platforms.current().audio()."""
 from __future__ import annotations
 
 from ..platforms import Unsupported, current
-from .base import ThreadedPlugin, adjusted, value_state
+from .base import ThreadedPlugin, adjusted, muted_state, value_state
 
 FOCUSED = "focused"     # app_volume arg: whichever app has focus
 KINDS = {"speakers": "speakers", "speaker": "speakers", "output": "speakers",
@@ -161,12 +161,23 @@ class AudioPlugin(ThreadedPlugin):
         self._set(name, arg, value)
         self._publish_value(name, arg)
 
+    def _get_muted(self, name, arg) -> bool | None:
+        if name == "app_volume":
+            app = self._app(arg)
+            return None if app is None else self.backend.get_app_mute(app)
+        return self.backend.get_mute("microphone" if name == "mic_volume" else "speakers")
+
     def _publish_value(self, name, arg):
         try:
             v = self._get(name, arg)
         except Exception:
             v = None
         self.ctx.set_state(value_state(name, arg), None if v is None else round(v))
+        try:
+            muted = self._get_muted(name, arg)
+        except Exception:                  # Unsupported (one app on macOS), or a COMError
+            muted = None
+        self.ctx.set_state(muted_state(name, arg), muted)
 
     def tick(self):
         b = self.backend

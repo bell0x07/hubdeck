@@ -491,21 +491,22 @@ The code also gets `deck`, which reaches every module, numbered like in the conf
 | control | what it has |
 | --- | --- |
 | `deck.keys[1]` … `deck.keys[15]` | `set_face`, `clear_face`, `face`, `press`, `held` |
-| `deck.dial` | `set_face`, `clear_face`, `face`, `press`, `held`, `turn`, `value` |
-| `deck.knobs[1]` … `deck.knobs[3]` | `press`, `held`, `turn`, `value`, `set_light`, `clear_light` |
-| `deck.rollers[1]`, `deck.rollers[2]` | `turn`, `value` |
-| `deck.faders[1]` … `deck.faders[5]` | `position`, `value`, `move_to`, `set_light`, `clear_light` |
+| `deck.dial` | `set_face`, `clear_face`, `face`, `press`, `held`, `turn`, `value`, `muted` |
+| `deck.knobs[1]` … `deck.knobs[3]` | `press`, `held`, `turn`, `value`, `muted`, `set_light`, `clear_light` |
+| `deck.rollers[1]`, `deck.rollers[2]` | `turn`, `value`, `muted` |
+| `deck.faders[1]` … `deck.faders[5]` | `position`, `value`, `muted`, `move_to`, `set_light`, `clear_light` |
 | `deck.base` | `set_light`, `clear_light` |
 
 | method | what it does |
 | --- | --- |
-| `set_face(page=None, replace=False, value_of=None, seconds=None, **fields)` | change the face, with the config's face fields: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `gauge`, `image`, `image_fit`. `replace=True` shows only these fields instead of the config's face. `value_of=deck.knobs[2]` makes `{value}` and `gauge` show that control's value, kept up to date, instead of this one's. `seconds=1.5` brings the config's face back after that long |
+| `set_face(page=None, replace=False, value_of=None, seconds=None, muted=None, **fields)` | change the face, with the config's face fields: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `gauge`, `image`, `image_fit`. `replace=True` shows only these fields instead of the config's face. `value_of=deck.knobs[2]` makes `{value}` and `gauge` show that control's value, kept up to date, instead of this one's. `seconds=1.5` brings the config's face back after that long. `muted={"label": "MUTED"}` holds face fields used on top while what the face shows is muted |
 | `clear_face(page=None)` | go back to the config's face |
 | `face(page=None)` | what it shows, with live text filled in: `.icon`, `.label`, `.text`, `.bg` (as `(r, g, b)`) and the other face fields. `None` if hubdeck doesn't draw it |
 | `press(page=None, gesture="press")` | run the actions the config gives it, as if it was pressed. `gesture` can also be `down`, `up`, `long_press` or `double_press` |
 | `held` | whether it's held down right now |
 | `turn(steps=1, page=None)` | act as if it was turned `steps` clicks (positive = clockwise; rollers: up or right). This adjusts its `turn` target, or runs its `cw`/`ccw` actions once per click |
 | `value(page=None)` | the current value (0–100) of what it controls, or `None` while unknown |
+| `muted(page=None)` | whether what it controls is muted: the app or device for `audio` volumes, a volume of 0 for `spotify.volume`. `None` while unknown, or for targets without a mute |
 | `position` | where a fader sits (0–100), or `None` until it has reported |
 | `move_to(value, page=None)` | set what a fader controls to `value`, as if moved there. The fader then has to reach that value before it takes over again |
 | `set_light(**fields)` | change its LED, with the fields of a `lighting:` zone: `color`, `mode`, `brightness`, `min_brightness`, `animate`, `state`, `on`, `unknown` |
@@ -549,16 +550,17 @@ On `deck` itself:
 - **Unused controls:** setting a face or a light on something the config doesn't use makes hubdeck take it over, opening its module if needed, even in `shared` mode. Clearing a key's face hands the key back.
 - **Images:** `image` takes what the config takes (a file, relative to the config's folder, an `http(s)` URL or a `{vars.…}` template), or a picture made in code: a PIL image, or image bytes such as a PNG or an animated GIF. Pictures made in code are kept in memory while a face uses them.
 - **Timing:** changes are queued and hubdeck applies them in order within about 10 ms. Bad arguments, like an unknown icon, page or control, raise straight away.
-- **A knob on the Dial:** with `on_turn`, each knob can show what it changes on the Dial while you turn it, then let the Dial's own face come back. `deck.control` is the knob that was turned:
+- **A knob on the Dial:** with `on_turn`, each knob can show what it changes on the Dial while you turn it, then let the Dial's own face come back. `deck.control` is the knob that was turned. `muted` switches the face while that app is muted, as soon as the mute happens, so a press that mutes can show the same face. A YAML anchor (`&teams`, used again as `*teams`) saves writing it twice:
 
   ```yaml
   knobs:
     1:
       turn: audio.volume
       on_turn: {python: 'deck.dial.set_face(icon="volume", label="{value}%", gauge=True, value_of=deck.control, replace=True, seconds=1.5)'}
-    2:
-      turn: {target: spotify.volume, step: 2}
-      on_turn: {python: 'deck.dial.set_face(icon="brand-spotify", label="{value}%", gauge=True, value_of=deck.control, replace=True, seconds=1.5)'}
+    3:
+      turn: {target: audio.app_volume, arg: ms-teams.exe}
+      on_turn: &teams {python: 'deck.dial.set_face(icon="brand-teams", label="{value}%", gauge=True, value_of=deck.control, muted={"label": "MUTED", "bg": "#c81e28", "fg": "white"}, replace=True, seconds=1.5)'}
+      action: [{audio.toggle_mute: {app: ms-teams.exe}}, *teams]
   ```
 - **Plugins:** `deck.run` starts any plugin the config doesn't use yet. A plugin's states only exist while it runs, so to read one from Python that nothing else uses, list the plugin under `plugins:`, for example `system:`.
 

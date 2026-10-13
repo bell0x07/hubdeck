@@ -21,7 +21,7 @@ import urllib.request
 from pathlib import Path
 
 from .. import paths
-from .base import ThreadedPlugin, adjusted, value_state
+from .base import ThreadedPlugin, adjusted, muted_state, value_state
 
 API = "https://api.spotify.com/v1"
 ACCOUNTS = "https://accounts.spotify.com"
@@ -253,6 +253,7 @@ class SpotifyPlugin(ThreadedPlugin):
         self.ctx.set_state("muted", None if level is None else level == 0)
         self.ctx.set_state("device", self.device)
         self.ctx.set_state(value_state("volume", None), level)
+        self.ctx.set_state(muted_state("volume", None), None if level is None else level == 0)
 
     def _fail(self, e: SpotifyError):
         if e.status == 429:
