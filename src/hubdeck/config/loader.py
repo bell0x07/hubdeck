@@ -126,6 +126,9 @@ def check_references(cfg: Config) -> list[str]:
         if (kd.face_on or kd.face_unknown) and not kd.state:
             problems.append(f"{where}: face_on/face_unknown need a 'state' to switch on")
     problems += _check_actions(cfg, "auto_switch.on_focus", cfg.auto_switch.on_focus)
+    for name, page in cfg.pages.items():
+        for hook in ("on_page_enter", "on_page_exit"):
+            problems += _check_actions(cfg, f"pages.{name}.{hook}", getattr(page, hook))
     return problems
 
 

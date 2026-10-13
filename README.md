@@ -299,6 +299,17 @@ These share the same fields.
   - Every use of the modules starts the count again: `press` seconds after pressing a key, the Dial or a knob, and `idle` seconds after turning, moving a fader or arriving on the page.
   - Leave one out and the other counts for both, so `home_after: 60` goes home 60 s after any use.
   - Only the modules count, not `hubdeck send` or Python. The start page can't have it.
+- **Arriving and leaving:** a page's `on_page_enter` and `on_page_exit` run actions when it comes on screen and when it goes off, however that happens: a key, `home_after`, switching by app, `hubdeck send` or Python. The left page's `on_page_exit` runs first. For example, light a knob only while its page is shown:
+
+  ```yaml
+  pages:
+    lights:
+      on_page_enter: {python: 'deck.knobs[1].set_light(color="white", brightness=15)'}
+      on_page_exit:  {python: 'deck.knobs[1].clear_light()'}
+  ```
+
+  - The start page's `on_page_enter` runs when hubdeck starts. A reload that leaves the same page on screen runs neither.
+  - In Python there, faces and presses without a `page` act on the hook's page, and `deck.control` is `None`.
 
 ### Switching pages by app
 

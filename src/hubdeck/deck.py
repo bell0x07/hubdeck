@@ -273,9 +273,10 @@ class Deck:
 
     @property
     def control(self) -> Control | None:
-        """The key, dial, knob or roller whose press or turn started this code, or None."""
+        """The key, dial, knob or roller whose press or turn started this code, or None
+        (also for a page's on_page_enter/exit)."""
         source = self._source()
-        if source is None:
+        if source is None or source[1] is None:
             return None
         _, kind, number = source
         single = {"dial": self.dial, "base": self.base}
