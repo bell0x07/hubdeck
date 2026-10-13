@@ -11,7 +11,7 @@ from datetime import date, datetime
 from typing import Any, Callable
 
 from .config import Config, ConfigError, ConfigSource, KeyDef
-from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef, FaderDef, LightZone
+from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef, FaderDef, LightZone, state_on
 from .deck import Deck
 from .device import DeviceError
 from .device.manager import RETRY_SECONDS, DeviceManager, present_kinds
@@ -21,7 +21,7 @@ from .gestures import GestureTracker
 from .lighting import LightingController
 from .platforms import FocusedWindow, Unsupported, current
 from .plugins import REGISTRY, Plugin, PluginContext
-from .plugins.base import value_state
+from .plugins.base import muted_state, value_state
 from .render.images import ImageStore, LoadedImage
 from . import paths
 from .render.faces import BLANK, RenderFace, accent_color, parse_color, render
@@ -37,6 +37,9 @@ FADER_ECHO_SECONDS = 1.0                          # a target value this recent f
 FOCUS_SETTLE = 0.3                                # a window must keep focus this long to switch pages
 RECENT_WINDOWS = 20                               # focused windows remembered for the editor's picker
 REPLACE = "replace"                               # in a runtime face: it replaces the config's faces
+VALUE_OF = "value_of"                             # in a runtime face: {value} and gauge follow this control
+MUTED = "muted"                                   # in a runtime face: fields used while its control is muted
+_UNSET = object()
 Control = tuple[str, int]                         # (module, config number), e.g. ("knobs", 2); dial, base: 1
 Source = tuple[str, str, int]                     # (page, module, number) an action comes from
 
@@ -96,6 +99,7 @@ class Engine:
         self._owned: set[int] = set()                             # 1-based key numbers
         # set at runtime (deck); controls are (module, config number)
         self.overrides: dict[str, dict[Control, dict[str, Any]]] = {}   # page -> screen -> face fields
+        self.override_until: dict[tuple[str, Control], float] = {}      # (page, screen) -> when its face goes
         self.light_overrides: dict[Control, dict[str, Any]] = {}       # LED -> lighting fields
         self.brightness: dict[str, int] = {}                           # screen -> backlight
         self.firing: Source | None = None            # where the action being invoked comes from
@@ -181,11 +185,19 @@ class Engine:
         self.call(self._move_fader, page, number, value)
 
     def set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None,
-                 replace: bool = False):
+                 replace: bool = False, value_of: Control | None = None, seconds: float | None = None,
+                 muted: dict[str, Any] | None = None):
         """Merge `fields` into the runtime face of a key or the dial (None values reset to the
         config's); replace=True makes `fields` the whole face, over the default style only.
-        fields=None removes it (control=None: every screen on the page)."""
-        self.call(self._set_face, page, control, fields, replace)
+        value_of: {value} and gauge follow that control's value instead. seconds: the face
+        goes after that long (a later set_face decides again). muted: fields used on top while
+        what the face shows (value_of, or the screen's own target) is muted. fields=None removes
+        it (control=None: every screen on the page)."""
+        if value_of is not None:
+            fields = {**(fields or {}), VALUE_OF: value_of}
+        if muted is not None:
+            fields = {**(fields or {}), MUTED: muted}
+        self.call(self._set_face, page, control, fields, replace, seconds)
 
     def set_light(self, control: Control, fields: dict[str, Any] | None):
         """Merge `fields` into the runtime lighting of an LED (None values reset to the config's);
@@ -215,6 +227,19 @@ class Engine:
             p, n = d.target.split(".", 1)
             return self.state.get(f"{p}.{value_state(n, d.arg)}")
         return self.target_value(d)
+
+    def control_muted(self, page: str, control: Control) -> bool | None:
+        """Whether what a dial/knob/roller turn or a fader controls on `page` is muted; None if
+        unknown, or if its plugin doesn't say."""
+        d = self.def_on(page, control)
+        if isinstance(d, FaderDef):
+            target, arg = d.target, d.arg
+        elif isinstance(d, ControlDef) and d.turn and d.turn.target:
+            target, arg = d.turn.target, d.turn.arg
+        else:
+            return None
+        p, n = target.split(".", 1)
+        return self.state.get(f"{p}.{muted_state(n, arg)}")
 
     def fader_position(self, number: int) -> int | None:
         """Where fader `number` sits (0-100, up/right = 100), once it has reported."""
@@ -314,6 +339,9 @@ class Engine:
             for i, ev in tracker.tick(now):
                 self._fire(kind, i, ev)
         self._drain_states()
+        for (page, screen), until in list(self.override_until.items()):
+            if now >= until:
+                self._set_face(page, screen, None)
         if self.focus_source is not None:
             self._poll_focus(now)
         if (accent := accent_color()) != self._accent:
@@ -392,6 +420,7 @@ class Engine:
         self.images.forget()
         self._jpeg_cache.clear()
         self.overrides = {p: keys for p, keys in self.overrides.items() if p in cfg.pages}
+        self.override_until = {k: t for k, t in self.override_until.items() if k[0] in cfg.pages}
         self._update_owned(old.modules.keys.rotate if old is not None else None)
         # modules: open what the config uses, release the rest (MasterHUB may have them)
         self.manager.wanted = cfg.used_modules() | self._runtime_modules()
@@ -654,10 +683,12 @@ class Engine:
                 plugin.adjust(n, t.arg, steps * t.step, t.expo)
             except Exception as e:
                 log.error("%s: adjust failed: %s", t.target, e)
-            return
-        for _ in range(abs(steps)):
-            for action in (t.cw if steps > 0 else t.ccw):
-                self._invoke(action, source)
+        else:
+            for _ in range(abs(steps)):
+                for action in (t.cw if steps > 0 else t.ccw):
+                    self._invoke(action, source)
+        for action in cd.on_turn:
+            self._invoke(action, source)
 
     def _move_fader(self, page: str, number: int, value: float):
         fd = self.def_on(page, ("faders", number)) if page in self.cfg.pages else None
@@ -793,10 +824,14 @@ class Engine:
         return None
 
     def _set_face(self, page: str, control: Control | None, fields: dict[str, Any] | None,
-                  replace: bool = False):
+                  replace: bool = False, seconds: float | None = None):
         if page not in self.cfg.pages:
             return
         faces = self.overrides.setdefault(page, {})
+        for screen in list(faces) if control is None else [control]:
+            self.override_until.pop((page, screen), None)
+        if fields is not None and seconds:
+            self.override_until[(page, control)] = self.clock() + seconds
         if fields is not None:
             if isinstance(fields.get("image"), LoadedImage):     # a picture made in code
                 fields = {**fields, "image": self.images.put(fields["image"])}
@@ -843,24 +878,28 @@ class Engine:
             except DeviceError as e:
                 log.warning("%s lighting write failed: %s", kind, e)
 
-    def face_for(self, kd: KeyDef | None, override: dict[str, Any] | None = None) -> RenderFace:
+    def face_for(self, kd: KeyDef | None, override: dict[str, Any] | None = None,
+                 value: Any = _UNSET) -> RenderFace:
         """The face for a definition, with `override` (fields set at runtime) on top, or instead
-        of the definition's faces when it holds REPLACE."""
+        of the definition's faces when it holds REPLACE. {value} and the gauge show `value`,
+        by default the definition's turn target's."""
         if kd is None and override is None:
             return BLANK
         merged = self.cfg.defaults.style.model_dump(exclude_none=True)
-        if override is not None and REPLACE in override:
-            override = {k: v for k, v in override.items() if k != REPLACE}
-        elif kd is not None:
+        replace = override is not None and REPLACE in override
+        if override is not None:
+            override = {k: v for k, v in override.items() if k not in (REPLACE, VALUE_OF, MUTED)}
+        if not replace and kd is not None:
             merged.update(kd.face.model_dump(exclude_unset=True))
             if kd.state:
-                value = self.state.get(kd.state)
-                overlay = kd.face_unknown if value is None else kd.face_on if value else None
+                on = state_on(kd.state, self.state.get)
+                overlay = kd.face_unknown if on is None else kd.face_on if on else None
                 if overlay is not None:
                     merged.update(overlay.model_dump(exclude_unset=True))
         if override is not None:
             merged.update(override)
-        value = self.target_value(kd)
+        if value is _UNSET:
+            value = self.target_value(kd)
         gauge = merged.get("gauge", False)
         image, frame = merged.get("image"), 0
         if image and "{" in image:              # e.g. {vars.picture}: a picture sent with `hubdeck send image`
@@ -893,7 +932,14 @@ class Engine:
     def screen_face(self, control: Control, page: str | None = None) -> RenderFace:
         """Face of a key or the dial on `page` (default: the one on screen)."""
         page = page or self.current_page
-        return self.face_for(self.def_on(page, control), self.overrides.get(page, {}).get(control))
+        override = self.overrides.get(page, {}).get(control)
+        if override is None:
+            return self.face_for(self.def_on(page, control), None)
+        source = override.get(VALUE_OF, control)                    # whose value and mute it shows
+        if MUTED in override and self.control_muted(page, source):
+            override = {**override, **override[MUTED]}
+        value = self.control_value(page, source) if VALUE_OF in override else _UNSET
+        return self.face_for(self.def_on(page, control), override, value)
 
     def resolve_face(self, num: int, page: str | None = None) -> RenderFace:
         """Face of key `num` (1-based) on `page` (default: the one on screen)."""

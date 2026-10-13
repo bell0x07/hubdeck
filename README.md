@@ -9,7 +9,7 @@ A Stream-Deck-style controller for the whole **Cooler Master MasterHub** family:
 | **3 knobs, 2 rollers, 5 faders** | Volumes (system, microphone, per app) or any action, with knob and fader LEDs that can follow the value. |
 | **Base** | RGB lighting that reacts to state, for example red and breathing while you're muted. |
 
-Actions cover keystrokes, media keys, launching apps, system and per-app audio, and Discord mute/deafen/hold-to-mute. Controls can be grouped into pages, which can follow the app you're using. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
+Actions cover keystrokes, media keys, launching apps, system and per-app audio, Spotify's own volume, and Discord mute/deafen/hold-to-mute. Controls can be grouped into pages, which can follow the app you're using. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
 
 It runs on **Windows** and **macOS**. This is an unofficial tool, tested with real hardware on Windows 11 and macOS. The protocol notes, with sources and what's verified, are in [docs/protocol/](docs/protocol/README.md).
 
@@ -259,7 +259,7 @@ pages:
       1: {action: page.back, face: {icon: arrow-left, label: Back}}
 ```
 
-`hubdeck init` writes a commented starter config. **[examples/config.yaml](examples/config.yaml)** is a complete, working config that uses every module and feature: pages, gestures, live text, Discord, GIFs, the Dial gauge, knobs, rollers, faders, lighting and rotated mounting. If you only need one page, put `keys:`, `dial:`, `knobs:`, `rollers:` and `faders:` at the top level instead of `pages:`.
+`hubdeck init` writes a commented starter config. **[examples/config.yaml](examples/config.yaml)** is a complete, working config that uses every module and feature: pages, also by app, gestures, live text, Discord, Spotify, what's playing, Python, GIFs, the Dial gauge, knobs that show themselves on the Dial, rollers, faders, lighting and rotated mounting. If you only need one page, put `keys:`, `dial:`, `knobs:`, `rollers:` and `faders:` at the top level instead of `pages:`.
 
 ### Numbering and mounting
 
@@ -284,13 +284,15 @@ If a module is mounted turned, set `modules.<module>.rotate` to the clockwise tu
 These share the same fields.
 
 - **Gestures:** `action` (same as `on_press`), `on_down`, `on_up`, `on_long_press` and `on_double_press`. A control with only a press action fires immediately on key-down. If it also has a long or double action, the press fires on release, once the gesture is clear. Rollers can't be pressed.
-- **Actions** are written either as `plugin.action` or as `{plugin.action: argument}`. A list runs several actions in order. The short forms are `page`, `keys`, `type`, `media`, `run`, `open` and `python`.
+- **Actions** are written either as `plugin.action` or as `{plugin.action: argument}`. A list runs several actions in order. The short forms are `page`, `keys`, `type`, `media`, `run`, `open`, `focus` and `python`.
 - **Turning** (Dial, knobs, rollers) works one of two ways:
   - `turn: {target: plugin.value, arg: ..., step: 2, invert: false}` adjusts a value by `step` per click.
     - Add `expo` (0–1, like an RC transmitter's expo) to make clicks finer near 0 and coarser near 100. Going from 0 to 100 still takes 100/`step` clicks. With `step: 2, expo: 0.5`, clicks are about 1% at the bottom and 4% at the top. 0 (the default) gives even clicks.
   - `turn: {cw: action, ccw: action}` runs actions per click (clockwise = up/right for rollers).
   - `turn: audio.volume` is short for a target.
+- **After a turn:** `on_turn` runs actions after each turn of the Dial, a knob or a roller, once the `turn` target is adjusted or its `cw`/`ccw` actions have run. A fast spin can arrive as one turn of several clicks. To show a knob's value on the Dial while you turn it, see [Controlling hubdeck from Python](#controlling-hubdeck-from-python).
 - **State:** `state: plugin.state` uses `face_on` while the value is true and `face_unknown` while it's unknown, for example when Discord is closed. Fields you don't set in the overlay are taken from `face`.
+  - `state: {plugin.state: value}` is on while the value matches instead: a text it contains, in any case, or a number or true/false it equals. `state: {audio.output: DAC5}` is on while DAC5 is the default output.
 - **Pages:** each page can have its own `dial`, `knobs`, `rollers` and `faders` sections. A page without one uses the start page's section.
 - **Going home by itself:** `home_after: {idle: 60, press: 15}` on a page takes it back to the start page once it's left alone.
   - Every use of the modules starts the count again: `press` seconds after pressing a key, the Dial or a knob, and `idle` seconds after turning, moving a fader or arriving on the page.
@@ -408,17 +410,79 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | --- | --- | --- | --- |
 | `page` | `goto` (`{page: name}`), `back`, `home`, `auto_on`, `auto_off`, `auto_toggle` ([switching by app](#switching-pages-by-app)) | `auto`, `app`, `title` (the focused window) | none |
 | `keyboard` | `keys`, `key_down`, `key_up`, `media`, `type` (`cmd`/`win` is Command on macOS) | none | none |
-| `launch` | `open` (file, folder, app or URL; on macOS also an app name), `run` (shell command) | none | none |
+| `launch` | `open` (file, folder, app or URL; on macOS also an app name), `focus` ([an app's window, or open it](#switching-to-an-app)), `run` (shell command) | none | none |
 | `python` | `exec` (`{python: code}`) | none | none |
-| `audio` | `toggle_mute` / `mute` / `unmute` (speakers or microphone), `volume_up`, `volume_down`, `set_volume`, `set_output` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
+| `audio` | `toggle_mute` / `mute` / `unmute` (speakers, microphone, or one app: `{app: spotify.exe}`, `{app: focused}`), `volume_up`, `volume_down`, `set_volume`, `set_output`, `set_input` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output`, `input` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`, or `focused`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
 | `system` | none | `time`, `cpu`, `ram` | none |
+| `media` (Windows) | none (the media keys are `{media: play_pause}` etc., from `keyboard`) | `playing`, `app`, `title`, `artist` (see below) | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
+| `spotify` | `volume_up`, `volume_down` (step in %, default 5), `set_volume` (0–100), `toggle_mute` / `mute` / `unmute` | `volume`, `muted`, `device` (where Spotify plays) | `volume` (Spotify's own slider, [setup](#spotify-setup)) |
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
 
 - **Media keys:** `play_pause`, `next`, `prev`, `stop`, `vol_up`, `vol_down` and `mute`.
+- **What's playing (Windows):** the `media` states follow the app that the media keys control, the one the volume flyout shows. `media.playing` is true while it plays and false while it's paused. `media.app` is the app's Start menu name, such as `Spotify`, `Brave` or `Media Player`, and `media.title` and `media.artist` describe the track. All four are unknown while no app has media open. A play/pause key that shows which app it controls:
+
+  ```yaml
+  9:
+    action: {media: play_pause}
+    state: media.playing
+    face:         {icon: player-play, label: "{media.app}"}
+    face_on:      {icon: player-pause, label: "{media.app}"}
+    face_unknown: {icon: player-play, label: "-"}     # nothing open
+  ```
 - **Hold to mute:** put `on_down: discord.hold_mute_start` and `on_up: discord.hold_mute_end` on one key. This works even if you switch pages while holding it.
-- **App volume:** applies to every audio session of that process. An app that isn't playing audio has no value, so faders don't take it over.
+- **App volume:** applies to every audio session of that process, and of the processes it started: `ms-teams.exe` also covers the `msedgewebview2.exe` that new Teams plays through, and `steam.exe` the games started from Steam. Windows' own processes, such as Explorer, don't count, so `explorer.exe` doesn't take in every app you open. An app that isn't playing audio has no value, so faders don't take it over.
+- **The focused app:** `arg: focused` changes whichever app has focus: a game, Discord, the browser. Clicking the taskbar, the desktop or hubdeck's own windows doesn't change which app that is, and `{value}` follows when focus moves. On a knob that [shows itself on the Dial](#controlling-hubdeck-from-python), the app's name can stand in for an icon:
+
+  ```yaml
+  knobs:
+    1:
+      turn: {target: audio.app_volume, arg: focused}
+      on_turn: {python: 'deck.dial.set_face(text=deck.focused.app.removesuffix(".exe") if deck.focused else "-", label="{value}%", gauge=True, value_of=deck.control, replace=True, seconds=1.5)'}
+  ```
+- **Muting one app (Windows):** `{audio.toggle_mute: {app: discord.exe}}` mutes that app in the Windows mixer, and `{app: focused}` the focused one. It takes the same names as `app_volume`, including the processes an app started, and works well as a knob's press next to its volume:
+
+  ```yaml
+  knobs:
+    3:
+      turn: {target: audio.app_volume, arg: ms-teams.exe}
+      action: {audio.toggle_mute: {app: ms-teams.exe}}
+  ```
+- **Spotify's volume:** `spotify.volume` is the slider in the Spotify app. That's separate from Spotify's level in the Windows mixer, which `audio.app_volume` sets. It works through Spotify's Web API on whatever device Spotify plays on, including a phone or speaker, so it needs Spotify Premium and a [Spotify app](#spotify-setup). It's unknown while nothing plays on Spotify. hubdeck reads it back every 2 s, so changes made in Spotify itself show too. `spotify.toggle_mute` works like Spotify's own mute button: the volume goes to 0, and back to where it was on the next press.
+
+  ```yaml
+  knobs:
+    2: {turn: {target: spotify.volume, step: 2}}
+  ```
+- **Switching devices:** `audio.set_output` and `audio.set_input` make the first active playback or recording device whose name contains the argument (any case) the default. On Windows that's the Default Device, not the Default Communication Device. `audio.output` and `audio.input` show the current default's name. One key can switch both, and show while it's the default:
+
+  ```yaml
+  9:
+    action: [{audio.set_output: DAC5}, {audio.set_input: Scarlett 2i2}]
+    state: {audio.output: DAC5}      # on while the default output's name contains DAC5
+    face:    {icon: headphones, label: DAC5}
+    face_on: {bg: "#1e2a23"}         # a faint green tint
+  ```
+
+### Switching to an app
+
+`{focus: outlook.exe}` brings up the app's window you used last, restored if it's minimised. Only when the app has no window does it open the app, like `{open: ...}`. Pressed again while the app is in front, it goes to the app's next window, and from there round all of them. A long press can open a new window, for apps that open one each time they start, as Outlook does:
+
+```yaml
+1:
+  action: {focus: outlook.exe}
+  on_long_press: {open: outlook.exe}          # hold: a second Outlook window
+  face: {icon: mail, label: Outlook}
+2:                                            # a link doesn't name the app, so give both
+  action: {focus: {app: ms-teams.exe, open: "msteams:"}}
+  face: {icon: brand-teams, label: Teams}
+3: {action: {focus: 'C:\Program Files\Altium\AD25\X2.EXE'}, face: {icon: cpu, label: Altium}}
+```
+
+- **The app** is its program name, as in the log's `focus:` lines, in any case, with or without `.exe`. A path stands for both: its file name is the app, and the path is what opens. A link (`msteams:`, `https:`) needs `{app: ..., open: ...}`, and so does a command that starts a different program, such as `{app: WindowsTerminal.exe, open: wt.exe}`.
+- **Which windows count:** the ones Alt+Tab shows. An app closed to the tray, such as Teams, has none, so the press opens it, which brings its window back. Windows on another virtual desktop don't count either.
+- **macOS:** `focus` opens the app like `open`, since macOS brings a running app to the front by itself. It doesn't go round the app's windows.
 
 ### Python actions
 
@@ -449,21 +513,22 @@ The code also gets `deck`, which reaches every module, numbered like in the conf
 | control | what it has |
 | --- | --- |
 | `deck.keys[1]` … `deck.keys[15]` | `set_face`, `clear_face`, `face`, `press`, `held` |
-| `deck.dial` | `set_face`, `clear_face`, `face`, `press`, `held`, `turn`, `value` |
-| `deck.knobs[1]` … `deck.knobs[3]` | `press`, `held`, `turn`, `value`, `set_light`, `clear_light` |
-| `deck.rollers[1]`, `deck.rollers[2]` | `turn`, `value` |
-| `deck.faders[1]` … `deck.faders[5]` | `position`, `value`, `move_to`, `set_light`, `clear_light` |
+| `deck.dial` | `set_face`, `clear_face`, `face`, `press`, `held`, `turn`, `value`, `muted` |
+| `deck.knobs[1]` … `deck.knobs[3]` | `press`, `held`, `turn`, `value`, `muted`, `set_light`, `clear_light` |
+| `deck.rollers[1]`, `deck.rollers[2]` | `turn`, `value`, `muted` |
+| `deck.faders[1]` … `deck.faders[5]` | `position`, `value`, `muted`, `move_to`, `set_light`, `clear_light` |
 | `deck.base` | `set_light`, `clear_light` |
 
 | method | what it does |
 | --- | --- |
-| `set_face(page=None, replace=False, **fields)` | change the face, with the config's face fields: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `gauge`, `image`, `image_fit`. `replace=True` shows only these fields instead of the config's face |
+| `set_face(page=None, replace=False, value_of=None, seconds=None, muted=None, **fields)` | change the face, with the config's face fields: `icon`, `filled`, `label`, `text`, `bg`, `fg`, `label_color`, `font_size`, `gauge`, `image`, `image_fit`. `replace=True` shows only these fields instead of the config's face. `value_of=deck.knobs[2]` makes `{value}` and `gauge` show that control's value, kept up to date, instead of this one's. `seconds=1.5` brings the config's face back after that long. `muted={"label": "MUTED"}` holds face fields used on top while what the face shows is muted |
 | `clear_face(page=None)` | go back to the config's face |
 | `face(page=None)` | what it shows, with live text filled in: `.icon`, `.label`, `.text`, `.bg` (as `(r, g, b)`) and the other face fields. `None` if hubdeck doesn't draw it |
 | `press(page=None, gesture="press")` | run the actions the config gives it, as if it was pressed. `gesture` can also be `down`, `up`, `long_press` or `double_press` |
 | `held` | whether it's held down right now |
 | `turn(steps=1, page=None)` | act as if it was turned `steps` clicks (positive = clockwise; rollers: up or right). This adjusts its `turn` target, or runs its `cw`/`ccw` actions once per click |
 | `value(page=None)` | the current value (0–100) of what it controls, or `None` while unknown |
+| `muted(page=None)` | whether what it controls is muted: the app or device for `audio` volumes, a volume of 0 for `spotify.volume`. `None` while unknown, or for targets without a mute |
 | `position` | where a fader sits (0–100), or `None` until it has reported |
 | `move_to(value, page=None)` | set what a fader controls to `value`, as if moved there. The fader then has to reach that value before it takes over again |
 | `set_light(**fields)` | change its LED, with the fields of a `lighting:` zone: `color`, `mode`, `brightness`, `min_brightness`, `animate`, `state`, `on`, `unknown` |
@@ -501,11 +566,24 @@ On `deck` itself:
 
 - **Faces** set from Python sit on top of the config's face for that key or Dial on that page, including `face_on` and `face_unknown`. They last through config reloads, until they're cleared or hubdeck restarts. Fields you leave out keep their value. `None` resets a field to the config's value, and `""` hides a label, text or icon.
 - **`replace=True`** sets the whole face: the config's faces and fields set earlier are dropped, and only `defaults.style` stays underneath. Use it to show something unrelated, like a counter on a Dial whose config face is a volume icon with a gauge. Later calls without `replace` merge into it, and `clear_face` brings the config's face back.
+- **`seconds`:** each `set_face` on the same key or Dial decides again. Another call with `seconds` restarts the countdown, and one without keeps the face until it's cleared.
 - **Lighting** set from Python sits on top of the config's `lighting:` for that LED, on every page, with the same rules for fields.
 - **Pages:** `page` defaults to the page of the control that started the code, so slow code still updates its own page after you switch. Code with no control behind it, such as a thread you start yourself, uses the page on screen.
 - **Unused controls:** setting a face or a light on something the config doesn't use makes hubdeck take it over, opening its module if needed, even in `shared` mode. Clearing a key's face hands the key back.
 - **Images:** `image` takes what the config takes (a file, relative to the config's folder, an `http(s)` URL or a `{vars.…}` template), or a picture made in code: a PIL image, or image bytes such as a PNG or an animated GIF. Pictures made in code are kept in memory while a face uses them.
 - **Timing:** changes are queued and hubdeck applies them in order within about 10 ms. Bad arguments, like an unknown icon, page or control, raise straight away.
+- **A knob on the Dial:** with `on_turn`, each knob can show what it changes on the Dial while you turn it, then let the Dial's own face come back. `deck.control` is the knob that was turned. `muted` switches the face while that app is muted, as soon as the mute happens, so a press that mutes can show the same face. A YAML anchor (`&teams`, used again as `*teams`) saves writing it twice:
+
+  ```yaml
+  knobs:
+    1:
+      turn: audio.volume
+      on_turn: {python: 'deck.dial.set_face(icon="volume", label="{value}%", gauge=True, value_of=deck.control, replace=True, seconds=1.5)'}
+    3:
+      turn: {target: audio.app_volume, arg: ms-teams.exe}
+      on_turn: &teams {python: 'deck.dial.set_face(icon="brand-teams", label="{value}%", gauge=True, value_of=deck.control, muted={"label": "MUTED", "bg": "#c81e28", "fg": "white"}, replace=True, seconds=1.5)'}
+      action: [{audio.toggle_mute: {app: ms-teams.exe}}, *teams]
+  ```
 - **Plugins:** `deck.run` starts any plugin the config doesn't use yet. A plugin's states only exist while it runs, so to read one from Python that nothing else uses, list the plugin under `plugins:`, for example `system:`.
 
 ### Discord setup
@@ -517,6 +595,22 @@ The Discord plugin needs a Discord app. You create it once, for your own account
 3. Add the redirect `http://localhost` and click **Save Changes**. It must be the **only** redirect. If there are none, or more than one, authorization fails with `Missing "redirect_uri" in request`.
 
 The first time hubdeck connects, Discord shows an authorization popup. The login token is then kept in `discord_token.json` in the hubdeck folder. Voice RPC only works for the app's owner and for whitelisted testers.
+
+### Spotify setup
+
+The Spotify plugin needs a Spotify app, and Spotify Premium: Spotify only lets Premium accounts change the volume. You create the app once, for your own account:
+
+1. Go to https://developer.spotify.com/dashboard and click **Create app**.
+2. Add the redirect URI `http://127.0.0.1:8973/callback`, tick **Web API** and save. Spotify doesn't accept `localhost`. To use another port, add that URI to the app instead and set it as `redirect_uri` under `plugins.spotify`.
+3. Copy the app's **Client ID** into `secrets.yaml` as `spotify_client_id`. There's no client secret.
+
+```yaml
+plugins:
+  spotify:
+    client_id: !secret spotify_client_id
+```
+
+When hubdeck starts without a Spotify login, it opens Spotify's login page in your browser. The login is then kept in `spotify_token.json` in the hubdeck folder. If you skip the login, or it expires, using a Spotify control opens the page again.
 
 ## Shortcuts, scripts and automation
 

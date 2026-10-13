@@ -65,9 +65,18 @@ def test_missing_secret(write):
     ("keys: {1: {action: {keys: 'ctrl+banana'}}}", "unknown key 'banana'"),
     ("keys: {1: {face: {label: '{rec.missing}'}}}", "no state 'missing'"),
     ("keys: {1: {face_on: {bg: red}}}", "need a 'state'"),
+    ("keys: {1: {state: {rec.missing: x}, face_on: {bg: red}}}", "no state 'missing'"),
+    ("keys: {1: {state: {rec.on: x, rec.value: y}}}", "one plugin.state"),
+    ("keys: {1: {state: {rec.value: [x]}}}", "text, number or true/false"),
+    ("lighting: {base: {state: {Rec.value: x}, on: {color: red}}}\nkeys: {1: {action: rec.a}}", "must look like plugin.state"),
     ("keys: {1: {colour: red}}", "colour"),
     ("{}", "nothing defined"),
     ("keys: {1: {action: discord.mute}}\nplugins: {discord: {}}", "client_id is required"),
+    ("knobs: {1: {action: rec.a, on_turn: rec.b}}", "on_turn runs after a turn"),
+    ("knobs: {1: {turn: spotify.volume}}", "spotify.client_id is required"),      # no plugins section
+    ("knobs: {1: {turn: {target: spotify.volume, arg: x}}}\nplugins: {spotify: {client_id: c}}", "takes no arg"),
+    ("keys: {1: {action: spotify.volume_up}}\nplugins: {spotify: {client_id: c, redirect_uri: 'http://localhost:1/x'}}",
+     "doesn't allow localhost"),
     ("keys: {1: {action: {python: 'x ='}}}", r"python: .*\(line 1\)"),
     ("keys: {1: {action: {python: 5}}}", "needs code"),
 ])
@@ -119,11 +128,13 @@ def test_full_showcase_example_is_valid(monkeypatch):
     from pathlib import Path
     monkeypatch.setenv("HUBDECK_DISCORD_CLIENT_ID", "123")
     monkeypatch.setenv("HUBDECK_DISCORD_CLIENT_SECRET", "dummy")
+    monkeypatch.setenv("HUBDECK_SPOTIFY_CLIENT_ID", "dummy")
     path = Path(__file__).resolve().parents[1] / "examples" / "config.yaml"
     cfg = load_config(path, secrets=path.parent / "no-secrets.yaml")
     assert cfg.used_modules() == {"keys", "dial", "knobs", "rollers", "faders", "base"}
-    assert set(cfg.pages) == {"main", "media", "fun"}
-    assert cfg.pages["media"].match and cfg.auto_switch.ignore
+    assert set(cfg.pages) == {"main", "media", "call", "fun"}
+    assert cfg.pages["media"].match and cfg.auto_switch.ignore and cfg.auto_switch.on_focus
+    assert cfg.pages["call"].sticky and cfg.pages["call"].match[0].rank == 2   # app + title
 
 
 def test_on_off_yes_no_stay_text(write):

@@ -36,6 +36,12 @@ def value_state(name: str, arg: Any) -> str:
     return f"value:{name}:{'' if arg is None else arg}"
 
 
+def muted_state(name: str, arg: Any) -> str:
+    """State key for whether what a watched value controls is muted (a plugin may publish it
+    next to the value), e.g. 'muted:app_volume:spotify.exe'."""
+    return f"muted:{name}:{'' if arg is None else arg}"
+
+
 def _expo(x: float, expo: float) -> float:
     return (1 - expo) * x + expo * x ** 3
 

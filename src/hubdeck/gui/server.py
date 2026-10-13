@@ -358,8 +358,8 @@ class GuiServer:
         return self.preview.render(cfg, page, section, kd, "round" if section == "dial" else "square")
 
     def audio_info(self) -> dict:
-        """Apps currently holding an audio session and the active playback devices, for pickers."""
-        out = {"apps": [], "outputs": []}
+        """Apps currently holding an audio session and the active playback and recording devices, for pickers."""
+        out = {"apps": [], "outputs": [], "inputs": []}
 
         def work():
             import warnings
@@ -369,7 +369,8 @@ class GuiServer:
                 backend = current().audio()
                 try:
                     out["apps"] = backend.apps()
-                    out["outputs"] = backend.outputs()
+                    out["outputs"] = backend.devices("speakers")
+                    out["inputs"] = backend.devices("microphone")
                 finally:
                     backend.close()
             except Exception:

@@ -15,7 +15,7 @@ const h = (tag, attrs = {}, ...kids) => {
 
 const NAMES = { keys: "Keys", dial: "Dial", knobs: "Knobs", rollers: "Rollers", faders: "Faders" };
 const SINGULAR = { keys: "Key", dial: "Dial", knobs: "Knob", rollers: "Roller", faders: "Fader" };
-let S = null, META = null, AUDIO = { apps: [], outputs: [] }, SHORTCUTS = null, page = null, sel = null, cur = null, stamp = Date.now();
+let S = null, META = null, AUDIO = { apps: [], outputs: [], inputs: [] }, SHORTCUTS = null, page = null, sel = null, cur = null, stamp = Date.now();
 const IS_MAC = () => META?.platform === "darwin";
 
 // ---------------------------------------------------------------------------------------
@@ -33,6 +33,7 @@ const ACTIONS = [
     { label: "Volume down", arg: { kind: "number", label: "by %", def: 5 }, make: v => ({ "audio.volume_down": v ?? 5 }), is: a => a.name === "audio.volume_down", get: a => a.arg },
     { label: "Set volume to", arg: { kind: "number", label: "%", def: 50 }, make: v => ({ "audio.set_volume": v ?? 50 }), is: a => a.name === "audio.set_volume", get: a => a.arg },
     { label: "Switch speakers / headphones to", arg: { kind: "output" }, make: v => ({ "audio.set_output": v || "" }), is: a => a.name === "audio.set_output", get: a => a.arg },
+    { label: "Switch microphone to", arg: { kind: "input" }, make: v => ({ "audio.set_input": v || "" }), is: a => a.name === "audio.set_input", get: a => a.arg },
   ] },
   { group: "Discord", items: [
     ["toggle_mute", "Mute / unmute"], ["toggle_deafen", "Deafen / undeafen"], ["mute", "Mute"], ["unmute", "Unmute"],
@@ -41,6 +42,7 @@ const ACTIONS = [
   { group: "Open & run", items: [
     { label: "Open a website", arg: { kind: "text", placeholder: "https://…" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open" && /^https?:/i.test(a.arg || ""), get: a => a.arg },
     { label: "Open an app, file or folder", arg: { kind: "text", placeholder: () => IS_MAC() ? "Spotify, or /Applications/…" : "C:\\Program Files\\…\\app.exe" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open", get: a => a.arg },
+    { label: "Switch to an app, or open it", arg: { kind: "text", placeholder: () => IS_MAC() ? "Spotify" : "outlook.exe, or C:\\Program Files\\…\\app.exe" }, make: v => ({ focus: v || "" }), is: a => a.name === "launch.focus" && typeof a.arg === "string", get: a => a.arg },
     { label: "Run a command", arg: { kind: "text", placeholder: () => IS_MAC() ? "e.g. say hello" : "e.g. notepad.exe" }, make: v => ({ run: v || "" }), is: a => a.name === "launch.run" && typeof a.arg === "string", get: a => a.arg },
     { label: "Run a Shortcut", needs: "shortcuts", arg: { kind: "shortcut" }, make: v => ({ "shortcuts.run": v || "" }), is: a => a.name === "shortcuts.run" && typeof a.arg === "string", get: a => a.arg },
     { label: "Flip a value (vars)", arg: { kind: "text", placeholder: "name, e.g. dnd" }, make: v => ({ "vars.toggle": v || "" }), is: a => a.name === "vars.toggle", get: a => a.arg },
@@ -360,8 +362,8 @@ function argInput(item, value, onChange) {
     oninput: e => onChange(e.target.value === "" ? undefined : Number(e.target.value)) }), h("span", { class: "muted" }, spec.label));
   if (spec.kind === "page") return h("select", { onchange: e => onChange(e.target.value) },
     h("option", { value: "" }, "choose a page"), ...Object.keys(S.pages).map(p => h("option", { value: p, selected: p === value }, p)));
-  if (spec.kind === "output") {
-    const opts = [...new Set([...(AUDIO.outputs || []), ...(value ? [value] : [])])];
+  if (spec.kind === "output" || spec.kind === "input") {
+    const opts = [...new Set([...(AUDIO[spec.kind + "s"] || []), ...(value ? [value] : [])])];
     return h("select", { onchange: e => onChange(e.target.value) },
       h("option", { value: "" }, opts.length ? "choose a device" : "no devices found"),
       ...opts.map(o => h("option", { value: o, selected: o === value }, o)));
@@ -505,13 +507,25 @@ function lookFields(base, isDial, isOverlay) {
   return fields;
 }
 
+// A state set in YAML that the pickers don't list, e.g. {audio.output: DAC5}: kept as one option.
+function ownState(state) {
+  if (!state || typeof state !== "object") return state ? { key: state, label: STATES[state] || state } : null;
+  const [[name, want]] = Object.entries(state);
+  return { key: JSON.stringify(state), label: `${STATES[name] || name}: ${want}` };
+}
+
+function stateOptions(own) {
+  const keys = [...new Set([...Object.keys(STATES), ...(own ? [own.key] : [])])];
+  return keys.map(k => h("option", { value: k, selected: k === own?.key }, k === own?.key ? own.label : STATES[k]));
+}
+
 function stateFields() {
-  const states = [...new Set([...Object.keys(STATES), ...(cur.raw.state ? [cur.raw.state] : [])])];
-  const pick = h("select", { onchange: e => { setPath(cur.raw, ["state"], e.target.value || undefined);
+  const own = ownState(cur.raw.state);
+  const pick = h("select", { onchange: e => { setPath(cur.raw, ["state"], e.target.value === own?.key ? cur.raw.state : e.target.value || undefined);
     if (!e.target.value) { delete cur.raw.face_on; delete cur.raw.face_unknown; }
     else if (!cur.raw.face_on) cur.raw.face_on = { bg: RED, fg: "white" };
     changed(); buildForm(); } },
-    h("option", { value: "" }, "never"), ...states.map(s => h("option", { value: s, selected: s === cur.raw.state }, STATES[s] || s)));
+    h("option", { value: "" }, "never"), ...stateOptions(own));
   const out = [field("Change look when", pick)];
   if (cur.raw.state) out.push(h("div", { class: "overlay" }, h("div", { class: "muted" }, "…then look like this (empty = unchanged):"),
     ...lookFields(["face_on"], false, true)));
@@ -525,7 +539,7 @@ function turnFields() {
   const verb = cur.section === "rollers" ? "Rolling" : "Turning";
   const modeSel = h("select", { onchange: e => {
     const v = e.target.value;
-    if (v === "") delete cur.raw.turn;
+    if (v === "") delete cur.raw.turn, delete cur.raw.on_turn;     // on_turn needs a turn
     else if (v === "actions") cur.raw.turn = { cw: { media: "next" }, ccw: { media: "prev" } };
     else cur.raw.turn = { target: v, step: 2, ...(v === "audio.app_volume" ? { arg: AUDIO.apps[0] || "Spotify" } : {}) };
     changed(); buildForm(); } },
@@ -546,6 +560,8 @@ function turnFields() {
     out.push(field(cur.section === "rollers" ? "Up / right" : "Clockwise", actionEditor("cw", turnObj)),
       field(cur.section === "rollers" ? "Down / left" : "Counter-clockwise", actionEditor("ccw", turnObj)));
   }
+  if (mode) out.push(field("After each turn", actionEditor("on_turn")),
+    h("p", { class: "muted" }, "For example Python that shows the value on the Dial: deck.dial.set_face(…, value_of=deck.control, seconds=1.5)."));
   return out;
 }
 
@@ -553,10 +569,12 @@ function appPicker(path) {
   const v = getPath(cur.raw, path) ?? "";
   const same = (a, b) => a.toLowerCase().replace(/\.exe$/, "") === b.toLowerCase().replace(/\.exe$/, "");
   const apps = [...(AUDIO.apps || []).filter(a => !v || !same(a, v)), ...(v ? [v] : [])]
+    .filter(a => a.toLowerCase() !== "focused")
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
   const sel = h("select", { onchange: e => {
     if (e.target.value === "__other") { other.classList.remove("hidden"); other.focus(); return; }
     other.classList.add("hidden"); setPath(cur.raw, path, e.target.value); changed(); } },
+    h("option", { value: "focused", selected: v.toLowerCase() === "focused" }, "the focused app"),
     ...apps.map(a => h("option", { value: a, selected: a === v }, a.replace(/\.exe$/i, ""))),
     h("option", { value: "__other" }, "another app…"));
   const other = h("input", { type: "text", class: "hidden", placeholder: IS_MAC() ? "app name, e.g. Music" : "program name, e.g. chrome.exe",
@@ -847,8 +865,9 @@ $("#btn-lighting").onclick = async () => {
     if (hasValue) rows.push(field("", h("label", { class: "check" }, h("input", { type: "checkbox", checked: z.brightness === "value",
       onchange: e => set("brightness", e.target.checked ? "value" : undefined) }), "brighter when the value is higher")));
     const on = z.on ?? {};
-    const stateSel = h("select", { onchange: e => { set("state", e.target.value); if (!e.target.value) set("on", undefined); else { on.color ??= RED; set("on", on); } draw(); } },
-      h("option", { value: "" }, "never"), ...Object.entries(STATES).map(([k, label]) => h("option", { value: k, selected: z.state === k }, label)));
+    const own = ownState(z.state), kept = z.state;
+    const stateSel = h("select", { onchange: e => { set("state", e.target.value === own?.key ? kept : e.target.value); if (!e.target.value) set("on", undefined); else { on.color ??= RED; set("on", on); } draw(); } },
+      h("option", { value: "" }, "never"), ...stateOptions(own));
     const onBox = h("span", { class: "argwrap" });
     const draw = () => onBox.replaceChildren(...(z.state ? [h("span", { class: "muted" }, "then"),
       h("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(on.color || "") ? on.color : RED, oninput: e => { on.color = e.target.value; set("on", on); } }),

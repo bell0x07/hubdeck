@@ -37,16 +37,16 @@ class AudioBackend(ABC):
     def set_mute(self, kind: str, mute: bool): ...
 
     @abstractmethod
-    def output_name(self) -> str:
-        """Name of the default playback device."""
+    def default_name(self, kind: str) -> str:
+        """Name of the default device."""
 
     @abstractmethod
-    def outputs(self) -> list[str]:
-        """Names of the playback devices that can be made the default."""
+    def devices(self, kind: str) -> list[str]:
+        """Names of the devices that can be made the default."""
 
     @abstractmethod
-    def set_output(self, want: str) -> str | None:
-        """Make the first output whose name contains `want` (any case) the default; its name, or None."""
+    def set_default(self, kind: str, want: str) -> str | None:
+        """Make the first device whose name contains `want` (any case) the default; its name, or None."""
 
     def apps(self) -> list[str]:
         """Apps whose volume can be read right now (for the editor's picker)."""
@@ -58,6 +58,13 @@ class AudioBackend(ABC):
 
     def set_app_volume(self, app: str, level: float):
         pass
+
+    def get_app_mute(self, app: str) -> bool | None:
+        """Whether every audio session of the app is muted; None when it has no audio right now."""
+        raise Unsupported("muting one app isn't supported on this system")
+
+    def set_app_mute(self, app: str, mute: bool):
+        raise Unsupported("muting one app isn't supported on this system")
 
     def close(self):
         pass
@@ -100,6 +107,26 @@ class FocusReader(ABC):
         system's own surfaces (taskbar, desktop, Alt+Tab, lock screen) or hubdeck itself."""
 
 
+@dataclass(frozen=True)
+class NowPlaying:
+    """The media session the media keys control."""
+    app: str                         # the app's name as the Start menu shows it (Spotify, Brave)
+    playing: bool                    # False: paused or stopped
+    title: str | None = None
+    artist: str | None = None
+
+
+class MediaReader(ABC):
+    """What's playing. Created and used on one thread of its own."""
+
+    @abstractmethod
+    def read(self) -> NowPlaying | None:
+        """The session the media keys control, or None when no app has one."""
+
+    def close(self):
+        pass
+
+
 class IpcConnection(ABC):
     """A local byte stream to another app (Discord's RPC pipe/socket)."""
 
@@ -140,6 +167,12 @@ class Platform(ABC):
     def run(self, cmd: str, cwd: str | None = None):
         """Start a shell command in the background, with no console window."""
 
+    def activate(self, app: str) -> bool:
+        """Bring a window of `app` (a process name, e.g. outlook.exe) to the front: the one used
+        last, or while the app is in front already, its next one. False when the app has no
+        window, or the OS can't do it; launch.focus then opens the app instead."""
+        return False
+
     def message_box(self, text: str):
         """Show a short message to someone who may not have a terminal."""
 
@@ -155,6 +188,9 @@ class Platform(ABC):
 
     def focus(self) -> FocusReader:
         raise Unsupported(f"switching pages by app is not supported on {self.name} yet")
+
+    def media(self) -> MediaReader:
+        raise Unsupported(f"reading what's playing is not supported on {self.name} yet")
 
     def run_with_event_loop(self, run: Callable[[], None], stop: Callable[[], None]):
         """Run `run` until it returns, with the OS's event loop going where it needs one

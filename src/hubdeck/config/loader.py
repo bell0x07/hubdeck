@@ -11,7 +11,7 @@ import yaml
 from pydantic import ValidationError
 
 from .. import paths
-from .schema import TEMPLATE_RE, VALUE_RE, Config, ControlDef
+from .schema import TEMPLATE_RE, VALUE_RE, Config, ControlDef, state_name
 
 
 class ConfigError(Exception):
@@ -88,9 +88,9 @@ def check_references(cfg: Config) -> list[str]:
     for name in sorted(cfg.used_plugins()):
         if name not in REGISTRY:
             problems.append(f"unknown plugin {name!r} (available: {', '.join(sorted(REGISTRY))})")
-    for name, settings in cfg.plugins.items():
+    for name in sorted(set(cfg.plugins) | cfg.used_plugins()):    # used without settings: checked as {}
         if name in REGISTRY:
-            problems += REGISTRY[name].check_config(settings)
+            problems += REGISTRY[name].check_config(cfg.plugins.get(name) or {})
     for where, target, arg in cfg.iter_targets():
         p, n = target.split(".", 1)
         plugin = REGISTRY.get(p)
@@ -102,7 +102,7 @@ def check_references(cfg: Config) -> list[str]:
         elif err := plugin.check_value(n, arg):
             problems.append(f"{where}: {err}")
     for kind, idx, zone in cfg.lighting.zones():
-        for ref in [zone.state] if zone.state else []:
+        for ref in [state_name(zone.state)] if zone.state else []:
             p, n = ref.split(".", 1)
             if p in REGISTRY and (err := REGISTRY[p].check_state(n, cfg.plugins.get(p) or {})):
                 problems.append(f"lighting.{kind}: {err}")
@@ -117,7 +117,7 @@ def check_references(cfg: Config) -> list[str]:
         problems += _check_actions(cfg, where, kd.all_actions())
         refs = []
         if kd.state:
-            refs.append(kd.state)
+            refs.append(state_name(kd.state))
         for f in kd.faces():
             for s in (f.text, f.label, f.image):
                 refs += [f"{p}.{n}" for p, n, _ in TEMPLATE_RE.findall(s or "")]

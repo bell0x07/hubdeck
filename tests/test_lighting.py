@@ -24,6 +24,12 @@ def test_state_overlay():
     assert resolve(z, {}.get, None, 0).rgb == (0x20, 0x20, 0x20)
 
 
+def test_state_overlay_matching_a_value():
+    z = zone(color="#3cc86e", state={"rec.value": 3}, on={"color": "red"})
+    assert resolve(z, {"rec.value": 3}.get, None, 0).rgb == (255, 0, 0)
+    assert resolve(z, {"rec.value": 30}.get, None, 0).rgb == (0x3C, 0xC8, 0x6E)   # numbers must be equal
+
+
 def test_brightness_follows_value_with_minimum():
     z = zone(color="white", brightness="value", min_brightness=10)
     assert resolve(z, {}.get, 0, 0).brightness == 10

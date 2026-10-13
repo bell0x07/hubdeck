@@ -1,5 +1,5 @@
 """Windows: %APPDATA%, a named mutex, ShellExecute, named pipes, pycaw, SendInput, the Run key,
-the foreground window."""
+the foreground window, media sessions."""
 
 from __future__ import annotations
 
@@ -62,6 +62,7 @@ class WindowsPlatform(Platform):
 
     def __init__(self):
         self._mutex = None
+        self._windows = None
 
     def app_data_dir(self) -> Path:
         return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
@@ -93,6 +94,12 @@ class WindowsPlatform(Platform):
         subprocess.Popen(cmd, shell=True, cwd=cwd, creationflags=CREATE_NO_WINDOW, stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    def activate(self, app: str) -> bool:
+        if self._windows is None:
+            from .focus import WinWindows
+            self._windows = WinWindows()
+        return self._windows.activate(app)
+
     def message_box(self, text: str):
         ctypes.windll.user32.MessageBoxW(None, text, "hubdeck", 0x40)
 
@@ -113,6 +120,10 @@ class WindowsPlatform(Platform):
     def focus(self):
         from .focus import WinFocus
         return WinFocus()
+
+    def media(self):
+        from .media import WinMedia
+        return WinMedia()
 
     def accent_color(self) -> tuple[int, int, int] | None:
         """The accent colour from Settings > Personalization > Colors. AccentPalette holds 8

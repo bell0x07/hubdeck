@@ -111,6 +111,79 @@ def test_windows_focus_reads_the_foreground_window(monkeypatch):
     assert reader.read().app == "explorer.exe"   # File Explorer
 
 
+def test_launch_focus_switches_to_a_running_app_or_opens_it(monkeypatch):
+    from hubdeck.plugins import launch
+    from hubdeck.plugins.base import PluginContext
+
+    class Plat:
+        calls = []
+
+        def activate(self, app):
+            self.calls.append(("activate", app))
+            return app in {"outlook.exe", "ms-teams.exe"}
+
+        def open(self, target):
+            self.calls.append(("open", target))
+
+    plat = Plat()
+    monkeypatch.setattr(launch, "current", lambda: plat)
+    plugin = launch.LaunchPlugin(PluginContext("launch", lambda *a: None), {})
+    plugin.handle("focus", "outlook.exe")
+    plugin.handle("focus", r"C:\Program Files\Altium\AD25\X2.EXE")
+    plugin.handle("focus", {"app": "ms-teams.exe", "open": "msteams:/_#/calendarv2"})
+    plugin.handle("focus", {"app": "WindowsTerminal.exe", "open": "wt.exe"})
+    plugin.handle("focus", "/Applications/Spotify.app/")
+    assert plat.calls == [
+        ("activate", "outlook.exe"),                              # it has a window: only that comes up
+        ("activate", "X2.EXE"), ("open", r"C:\Program Files\Altium\AD25\X2.EXE"),   # a path: its file name
+        ("activate", "ms-teams.exe"),
+        ("activate", "WindowsTerminal.exe"), ("open", "wt.exe"),
+        ("activate", "Spotify.app"), ("open", "/Applications/Spotify.app/"),
+    ]
+
+
+def test_launch_focus_checks_its_argument():
+    from hubdeck.config.schema import Action, parse_action
+    from hubdeck.plugins.launch import FOCUS_HELP, LaunchPlugin
+
+    assert parse_action({"focus": "outlook.exe"}) == Action(plugin="launch", name="focus", arg="outlook.exe")
+    check = LaunchPlugin.check_action
+    assert check("focus", "outlook.exe") is None
+    assert check("focus", r"C:\Program Files\Altium\AD25\X2.EXE") is None
+    assert check("focus", "%LOCALAPPDATA%\app.exe") is None
+    assert check("focus", {"app": "ms-teams.exe", "open": "msteams:/_#/calendarv2"}) is None
+    assert check("focus", {"app": "wt.exe"}) is None
+    assert "doesn't name the app" in check("focus", "msteams:/_#/calendarv2")
+    assert "doesn't name the app" in check("focus", "https://outlook.office.com")
+    for bad in ("", None, 5, {"open": "msteams:"}, {"app": " "}, {"app": "x.exe", "run": "x"}, {"app": "x.exe", "open": 5}):
+        assert check("focus", bad) == FOCUS_HELP
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows windows")
+def test_windows_focus_picks_the_last_used_window_then_goes_round():
+    from hubdeck.platforms.windows.focus import pick_window
+
+    assert pick_window([], 5) is None
+    assert pick_window([1, 2, 3], 9) == 1        # another app in front: the app's last-used window
+    assert pick_window([1, 2, 3], 1) == 3        # the app in front: its back one, so presses go round
+    assert pick_window([1], 1) == 1
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows windows")
+def test_windows_lists_an_apps_windows():
+    from hubdeck.platforms.windows.focus import WinWindows
+
+    windows = WinWindows()
+    assert windows.windows("no-such-app-hubdeck.exe") == []
+    assert current().activate("no-such-app-hubdeck.exe") is False
+    fg = windows.user32.GetForegroundWindow()
+    window = windows.read()
+    if not fg or window is None or not windows._listed(fg):
+        pytest.skip("no foreground window that Alt+Tab lists")
+    assert fg in windows.windows(window.app.upper())   # any case
+    assert fg in windows.windows(window.app.removesuffix(".exe"))
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file lock")
 def test_single_instance_lock(tmp_path):
     env = {**os.environ, "HUBDECK_HOME": str(tmp_path)}
@@ -347,3 +420,256 @@ def test_windows_single_instance_frees_the_other_hubdecks_mutex(monkeypatch):
     ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(first._mutex))   # the first hubdeck quits
     assert second.acquire_single_instance() is True
     ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(second._mutex))
+
+
+def test_audio_set_output_and_set_input_switch_the_default_devices(monkeypatch):
+    from hubdeck.platforms import AudioBackend
+    from hubdeck.plugins import audio
+    from hubdeck.plugins.base import PluginContext
+
+    class Backend(AudioBackend):
+        def __init__(self):
+            self.names = {"speakers": ["Speakers (NuForce uDAC5)", "Speakers (JBL Quantum 800 Game)"],
+                          "microphone": ["Microphone (Scarlett 2i2 USB)", "Headset Microphone (JBL Quantum 800 Chat)"]}
+            self.default = {kind: names[0] for kind, names in self.names.items()}
+
+        def get_volume(self, kind): return 50.0
+        def set_volume(self, kind, level): pass
+        def get_mute(self, kind): return False
+        def set_mute(self, kind, mute): pass
+        def default_name(self, kind): return self.default[kind]
+        def devices(self, kind): return self.names[kind]
+
+        def set_default(self, kind, want):
+            for name in self.names[kind]:
+                if want.lower() in name.lower():
+                    self.default[kind] = name
+                    return name
+            return None
+
+    monkeypatch.setattr(audio, "current", lambda: type("P", (), {"audio": lambda self: Backend()})())
+    states = {}
+    plugin = audio.AudioPlugin(PluginContext("audio", lambda p, k, v: states.__setitem__(k, v)), {})
+    plugin.setup()
+    plugin.handle("set_input", "jbl quantum 800 chat")                # any case, part of the name
+    assert states["input"] == "Headset Microphone (JBL Quantum 800 Chat)"
+    assert states["output"] == "Speakers (NuForce uDAC5)"             # the output stays
+    plugin.handle("set_output", "Quantum 800 Game")
+    assert states["output"] == "Speakers (JBL Quantum 800 Game)"
+    assert states["input"] == "Headset Microphone (JBL Quantum 800 Chat)"
+    plugin.handle("set_input", "Yeti")                                # no such device: nothing changes
+    assert states["input"] == "Headset Microphone (JBL Quantum 800 Chat)"
+    assert audio.AudioPlugin.check_action("set_input", "Scarlett") is None
+    assert audio.AudioPlugin.check_action("set_input", None) == "audio.set_input needs (part of) a device name"
+
+
+def test_audio_app_volume_follows_the_focused_app(monkeypatch):
+    from types import SimpleNamespace
+    from hubdeck.platforms import AudioBackend
+    from hubdeck.plugins import audio
+    from hubdeck.plugins.base import PluginContext, muted_state, value_state
+
+    class Backend(AudioBackend):
+        def __init__(self):
+            self.levels = {"Discord.exe": 50.0, "game.exe": 80.0}
+            self.muted = {"Discord.exe": False, "game.exe": False}
+
+        def get_volume(self, kind): return 50.0
+        def set_volume(self, kind, level): pass
+        def get_mute(self, kind): return False
+        def set_mute(self, kind, mute): pass
+        def default_name(self, kind): return "Speakers"
+        def devices(self, kind): return ["Speakers"]
+        def set_default(self, kind, want): return None
+        def get_app_volume(self, app): return self.levels.get(app)
+        def set_app_volume(self, app, level): self.levels[app] = level
+        def get_app_mute(self, app): return self.muted.get(app) if app in self.levels else None
+        def set_app_mute(self, app, mute): self.muted[app] = mute
+
+    monkeypatch.setattr(audio, "current", lambda: type("P", (), {"audio": lambda self: Backend()})())
+    states, deck = {}, SimpleNamespace(focused=None)
+    plugin = audio.AudioPlugin(PluginContext("audio", lambda p, k, v: states.__setitem__(k, v), deck), {})
+    plugin.setup()
+    plugin.watch({("app_volume", "focused")})
+    key = value_state("app_volume", "focused")
+    plugin.tick()
+    assert states[key] is None                                     # no window seen yet
+    plugin.adjust_value("app_volume", "focused", 5, 0)             # nothing to change
+
+    deck.focused = SimpleNamespace(app="Discord.exe", title="general")
+    plugin.adjust_value("app_volume", "focused", 5, 0)
+    assert plugin.backend.levels["Discord.exe"] == 55 and states[key] == 55
+    deck.focused = SimpleNamespace(app="game.exe", title="")
+    plugin.tick()
+    assert states[key] == 80                                       # follows focus
+    plugin.adjust_value("app_volume", "focused", -10, 0)
+    assert plugin.backend.levels == {"Discord.exe": 55, "game.exe": 70}
+    assert audio.AudioPlugin.check_value("app_volume", "focused") is None
+
+    plugin.handle("toggle_mute", {"app": "focused"})               # the focused app: the game
+    plugin.handle("toggle_mute", {"app": "Discord.exe"})
+    assert plugin.backend.muted == {"Discord.exe": True, "game.exe": True}
+    assert states[muted_state("app_volume", "focused")] is True    # published next to the value
+    deck.focused = None
+    plugin.tick()
+    assert states[muted_state("app_volume", "focused")] is None
+    deck.focused = SimpleNamespace(app="game.exe", title="")
+    plugin.handle("toggle_mute", {"app": "focused"})
+    plugin.handle("mute", {"app": "Discord.exe"})                  # already muted: stays
+    assert plugin.backend.muted == {"Discord.exe": True, "game.exe": False}
+    plugin.handle("toggle_mute", {"app": "nothing.exe"})           # no audio: nothing to do
+    assert audio.AudioPlugin.check_action("toggle_mute", {"app": "focused"}) is None
+    assert "process name" in audio.AudioPlugin.check_action("mute", {"app": ""})
+    assert "{app: <process name>}" in audio.AudioPlugin.check_action("mute", "headphones")
+
+
+def _media_plugin(monkeypatch, reader):
+    from hubdeck.plugins import media
+    from hubdeck.plugins.base import PluginContext
+
+    def make():
+        if isinstance(reader, Exception):
+            raise reader
+        return reader
+
+    monkeypatch.setattr(media, "current", lambda: type("P", (), {"media": lambda self: make()})())
+    emitted = []
+    plugin = media.MediaPlugin(PluginContext("media", lambda p, k, v: emitted.append((k, v))), {})
+    plugin.setup()
+    return plugin, emitted
+
+
+def test_media_plugin_publishes_what_changed(monkeypatch):
+    from hubdeck.platforms import MediaReader, NowPlaying
+
+    class Reader(MediaReader):
+        now: object = NowPlaying("Spotify", True, "Sundust", "Rodg")
+
+        def read(self):
+            if isinstance(self.now, Exception):
+                raise self.now
+            return self.now
+
+    reader = Reader()
+    plugin, emitted = _media_plugin(monkeypatch, reader)
+    plugin.tick()
+    assert emitted == [("playing", True), ("app", "Spotify"), ("title", "Sundust"), ("artist", "Rodg")]
+    emitted.clear()
+    plugin.tick()
+    assert emitted == []                                      # nothing new, nothing sent
+    reader.now = NowPlaying("Spotify", False, "Sundust", "Rodg")
+    plugin.tick()
+    assert emitted == [("playing", False)]                    # paused
+    emitted.clear()
+    reader.now = OSError("session went away")
+    plugin.tick()
+    assert emitted == []                                      # a failed read keeps what's shown
+    reader.now = None
+    plugin.tick()
+    assert emitted == [(f, None) for f in ("playing", "app", "title", "artist")]   # no app has media open
+
+
+def test_media_plugin_without_support_publishes_nothing(monkeypatch):
+    plugin, emitted = _media_plugin(monkeypatch, Unsupported("not here"))
+    plugin.tick()
+    plugin.teardown()
+    assert emitted == []
+
+
+def test_media_app_name_from_the_start_menu_or_the_process():
+    from hubdeck.platforms.windows.media import app_name
+
+    start_menu = {"Brave": "Brave", "MSEdge": "Microsoft Edge"}.get
+    assert app_name("MSEdge", start_menu) == "Microsoft Edge"
+    assert app_name("Spotify.exe", start_menu) == "Spotify"   # no Start menu id: the process
+    assert app_name("308046B0AF4A39CB", start_menu) == "308046B0AF4A39CB"
+
+
+def test_windows_media_keeps_the_icon_between_tracks():
+    """CHANGING (skipping to the next track) reads as the app's last state, so a playing
+    key doesn't blink to paused on every skip."""
+    from types import SimpleNamespace
+    control = pytest.importorskip("winrt.windows.media.control")
+    from hubdeck.platforms import NowPlaying
+    from hubdeck.platforms.windows.media import WinMedia
+    status = control.GlobalSystemMediaTransportControlsSessionPlaybackStatus
+
+    session = SimpleNamespace(source_app_user_model_id="Spotify.exe", status=None)
+    session.get_playback_info = lambda: SimpleNamespace(playback_status=session.status)
+    session.try_get_media_properties_async = lambda: SimpleNamespace(
+        get=lambda: SimpleNamespace(title="Sundust", artist=""))
+    reader = WinMedia.__new__(WinMedia)                       # no Windows session manager
+    reader.manager = SimpleNamespace(get_current_session=lambda: session)
+    reader.names, reader.last = {"Spotify.exe": "Spotify"}, None
+
+    def read(s):
+        session.status = s
+        return reader.read()
+
+    assert read(status.PLAYING) == NowPlaying("Spotify", True, "Sundust", None)   # no artist: unknown
+    assert read(status.CHANGING).playing is True
+    assert read(status.PAUSED).playing is False
+    assert read(status.CHANGING).playing is False
+    assert read(status.CLOSED) is None
+    reader.manager = SimpleNamespace(get_current_session=lambda: None)
+    assert reader.read() is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows media sessions")
+def test_windows_media_reads_the_current_session():
+    pytest.importorskip("winrt.windows.media.control")
+    result = []
+
+    def read():                                               # a thread of its own, like the plugin's
+        reader = current().media()
+        try:
+            result.append(reader.read())
+        finally:
+            reader.close()
+
+    t = threading.Thread(target=read)
+    t.start()
+    t.join(10)
+    now, = result                                             # whatever plays while the tests run
+    assert now is None or (now.app and isinstance(now.playing, bool))
+
+
+def test_windows_app_volume_includes_processes_the_app_started():
+    """New Teams plays through a msedgewebview2.exe it starts. Windows' own processes
+    (Explorer) don't count as apps, and each process is looked up once."""
+    wa = pytest.importorskip("hubdeck.platforms.windows.audio")
+    from types import SimpleNamespace
+    lookups = []
+
+    def proc(pid, name, folder, *parents):
+        def walk():
+            lookups.append(name)
+            return list(parents)                              # nearest first, like psutil
+        return SimpleNamespace(pid=pid, create_time=lambda: 1.0, name=lambda: name,
+                               exe=lambda: os.path.join(folder, name), parents=walk)
+
+    class Session:
+        def __init__(self, process, level):
+            self.Process, self.level, self.muted = process, level, 0
+            self.SimpleAudioVolume = SimpleNamespace(GetMasterVolume=lambda: self.level,
+                                                     SetMasterVolume=lambda v, _ctx: setattr(self, "level", v),
+                                                     GetMute=lambda: self.muted,
+                                                     SetMute=lambda m, _ctx: setattr(self, "muted", m))
+
+    programs, explorer = r"C:\Program Files", proc(1, "explorer.exe", wa.WINDOWS_DIR)
+    teams = proc(2, "ms-teams.exe", programs, explorer)
+    webview, spotify = Session(proc(3, "msedgewebview2.exe", programs, teams, explorer), 0.5), \
+        Session(proc(4, "Spotify.exe", programs, explorer), 0.9)
+    audio = wa.WinAudio.__new__(wa.WinAudio)                  # no COM
+    audio.au, audio._owners = SimpleNamespace(GetAllSessions=lambda: [webview, spotify, Session(None, 1)]), {}
+
+    assert audio.get_app_volume("ms-teams.exe") == 50
+    assert audio.get_app_volume("msedgewebview2") == 50       # still by its own name
+    assert audio.get_app_volume("explorer.exe") is None
+    audio.set_app_volume("MS-Teams", 30)
+    assert (webview.level, spotify.level) == (0.3, 0.9)
+    assert audio.get_app_mute("ms-teams.exe") is False and audio.get_app_mute("explorer.exe") is None
+    audio.set_app_mute("ms-teams.exe", True)
+    assert audio.get_app_mute("ms-teams.exe") is True and audio.get_app_mute("spotify") is False
+    assert audio.apps() == ["ms-teams.exe", "msedgewebview2.exe", "Spotify.exe"]
+    assert sorted(lookups) == ["Spotify.exe", "msedgewebview2.exe"]

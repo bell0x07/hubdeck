@@ -95,6 +95,23 @@ def test_hold_actions_and_state_faces(write, recorder):
     assert len({unknown, on, dev.images[1]}) == 3
 
 
+def test_state_matching_a_value(write, recorder):
+    eng, dev, _ = make(write, """
+keys:
+  1:
+    state: {rec.value: dac5}
+    face: {label: DAC5}
+    face_on: {bg: red}
+""")
+    plugin = rec(recorder)
+    plugin.emit("value", "Speakers (DAC5)"); eng.step()
+    on = dev.images[0]
+    plugin.emit("value", "Headset (JBL)"); eng.step()
+    assert dev.images[0] != on
+    plugin.emit("value", "Line out (dac5 USB)"); eng.step()   # any case
+    assert dev.images[0] == on
+
+
 def test_live_text_only_rewrites_when_text_changes(write, recorder):
     eng, dev, _ = make(write)
     plugin = rec(recorder)

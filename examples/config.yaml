@@ -30,6 +30,8 @@ plugins:
   discord:                     # needs your own Discord app, see README
     client_id: !secret discord_client_id
     client_secret: !secret discord_client_secret
+  spotify:                     # needs Spotify Premium and your own Spotify app, see README
+    client_id: !secret spotify_client_id
 
 # RGB lighting. Nothing is stored on the modules.
 lighting:
@@ -41,15 +43,21 @@ lighting:
   knobs:
     all: {color: white, brightness: value, min_brightness: 10}   # brighter = louder
     2:   {color: "#c81e28"}                                       # the mic knob is red
+    3:   {color: "#1db954", state: spotify.muted, on: {color: "#c81e28", brightness: 100}}   # Spotify green, red while muted
   faders:
     all: {color: white, brightness: value, min_brightness: 10}
+    1:   {state: {audio.output: Headset}, on: {color: "#3c8ce6"}}   # blue while the headset is the default output
     5:   {animate: {effect: cycle, colors: ["#3cc86e", "#3c8ce6", "#b43ce6"], period: 6}}
 
 # Switch pages by the app in focus (Windows, macOS): each page's `match` says which windows show it.
 # An app with no page brings back the page you were on.
 auto_switch:
   enabled: true                # page.auto_toggle (key 8) turns it off and on
-  ignore: [KeePassXC.exe]      # windows that count as if focus never moved, e.g. auto-type popups
+  ignore:                      # windows that count as if focus never moved
+    - PowerToys.PowerLauncher.exe              # a plain name is an app: the PowerToys Run popup
+    - {app: KeePassXC.exe, title: Auto-Type}   # app + title (a regex, any case): only KeePassXC's auto-type popup
+  on_focus:                    # runs on every change of focused app or title: dim the keys while a game has focus
+    python: 'deck.set_brightness(10 if deck.focused.app.lower() in ("cs2.exe", "eldenring.exe") else 80)'
 
 start_page: main
 pages:
@@ -82,7 +90,12 @@ pages:
         action: page.auto_toggle
         state: page.auto
         face:    {icon: exchange-off, label: MANUAL}
-        face_on: {icon: arrows-exchange, label: "{page.app}"}
+        face_on: {icon: arrows-exchange, label: "{page.app}"}   # {page.title}: its window title
+      9:                                   # the headset for sound and mic; tinted while it's the default output
+        action: [{audio.set_output: Headset}, {audio.set_input: Headset}]
+        state: {audio.output: Headset}     # on while the state contains this text (any case)
+        face:    {icon: headset, label: Headset}
+        face_on: {bg: "#1e2a23"}
       10:                                  # a list of actions runs in order
         action: [{keys: "win+d"}, {media: play_pause}]
         face: {icon: coffee, label: Break}
@@ -106,6 +119,13 @@ pages:
         face:         {icon: headphones, label: AUDIO}
         face_on:      {icon: headphones-off, label: DEAF, bg: "#c81e28", fg: white}
         face_unknown: {icon: plug-connected-x, label: NO DC, bg: "#c81e28", fg: white}
+      14:                                  # switch to Outlook, or open it; hold for a new window
+        action: {focus: outlook.exe}
+        on_long_press: {open: outlook.exe}
+        face: {icon: mail, label: Outlook}
+      15:                                  # a link doesn't name the app, so give both
+        action: {focus: {app: spotify.exe, open: "spotify:"}}
+        face: {icon: brand-spotify, label: "{spotify.device}"}   # where Spotify plays: this PC, a phone, a speaker
 
     # These sections apply to every page that doesn't define its own.
     dial:                                  # round screen: system volume with a gauge
@@ -116,9 +136,17 @@ pages:
       face_on: {icon: volume-off, label: MUTED, bg: "#c81e28", fg: white}
 
     knobs:                                 # 1 = top, 2 = bottom-left, 3 = bottom-right
-      1: {turn: {target: audio.app_volume, arg: discord.exe, expo: 0.5}}
+      # Knobs 1 and 3 show what they change on the Dial for 1.5 s, red while it's muted, and pressing
+      # one mutes it. &name marks the Dial popup once, *name reuses it for the press.
+      1:                                   # whichever app has focus; the Dial shows its name
+        turn: {target: audio.app_volume, arg: focused, expo: 0.5}
+        on_turn: &focused {python: 'deck.dial.set_face(text=deck.focused.app.removesuffix(".exe") if deck.focused else "-", label="{value}%", gauge=True, value_of=deck.control, muted={"label": "MUTED", "bg": "#c81e28", "fg": "white"}, replace=True, seconds=1.5)'}
+        action: [{audio.toggle_mute: {app: focused}}, *focused]   # mutes that app alone (Windows)
       2: {turn: {target: audio.mic_volume, expo: 0.5}, action: {audio.toggle_mute: microphone}}
-      3: {turn: {target: audio.app_volume, arg: spotify.exe, expo: 0.5}}
+      3:                                   # Spotify's own slider, not its mixer level; press: Spotify's own mute
+        turn: {target: spotify.volume, step: 2}
+        on_turn: &spotify {python: 'deck.dial.set_face(icon="brand-spotify", label="{value}%", gauge=True, value_of=deck.control, muted={"label": "MUTED", "bg": "#c81e28", "fg": "white"}, replace=True, seconds=1.5)'}
+        action: [spotify.toggle_mute, *spotify]
 
     rollers:                               # 1 = left, 2 = right
       1: {turn: {cw: {media: next}, ccw: {media: prev}}}
@@ -127,16 +155,20 @@ pages:
     faders:                                # soft takeover: no jumps when you grab a fader
       1: {target: audio.volume}
       2: {target: audio.mic_volume}
-      3: {target: audio.app_volume, arg: spotify.exe}
+      3: {target: audio.app_volume, arg: spotify.exe}    # Spotify in the Windows mixer (knob 3: its own slider)
       4: {target: audio.app_volume, arg: discord.exe}
-      5: {target: audio.app_volume, arg: chrome.exe}
+      5: {target: audio.app_volume, arg: ms-teams.exe}   # also what it starts: Teams plays through WebView2
 
   media:
     match: [spotify.exe, {title: YouTube}]  # shown while Spotify or a YouTube window has focus
     keys:
       1: {action: page.back, face: {icon: arrow-left, label: Back}}
       2: {action: {media: prev}, face: {icon: player-skip-back}}
-      3: {action: {media: play_pause}, face: {icon: player-play}}
+      3:
+        action: {media: play_pause}
+        state: media.playing                # what's playing (Windows): pause icon while it plays
+        face:    {icon: player-play, label: "{media.app}"}
+        face_on: {icon: player-pause, label: "{media.app}"}
       4: {action: {media: next}, face: {icon: player-skip-forward}}
       5: {action: {audio.volume_down: 5}, face: {icon: volume-2, label: "{audio.volume}%"}}
       6: {action: {audio.volume_up: 5}, face: {icon: volume, label: "{audio.volume}%"}}
@@ -145,15 +177,50 @@ pages:
         state: audio.speaker_muted
         face:    {icon: volume, label: SOUND}
         face_on: {icon: volume-off, label: MUTED, bg: "#c81e28", fg: white}
+      8: {face: {text: "{media.artist}", label: "{media.title}"}}   # the track that's playing (Windows)
     dial:                                  # on this page the dial controls Spotify instead
       turn: {target: audio.app_volume, arg: spotify.exe, step: 2, expo: 0.5}
       action: {media: play_pause}
       face: {icon: brand-spotify, label: "{value}%", gauge: true}
 
+  call:
+    match: [{app: Zoom.exe, title: '^Zoom Meeting'}]   # a meeting window; app + title beats an app alone
+    sticky: true                           # stays while you look something up in another app
+    keys:
+      1: {action: page.back, face: {icon: arrow-left, label: Back}}
+      2: {action: {focus: Zoom.exe}, face: {icon: video, label: Meeting}}   # back to the meeting from any app
+      3:
+        action: {audio.toggle_mute: microphone}
+        state: audio.mic_muted
+        face:    {icon: microphone, label: MIC}
+        face_on: {icon: microphone-off, label: MUTED, bg: "#c81e28", fg: white}
+    dial:                                  # the meeting's volume; press mutes Zoom alone (Windows)
+      turn: {target: audio.app_volume, arg: Zoom.exe, step: 2, expo: 0.5}
+      action: {audio.toggle_mute: {app: Zoom.exe}}
+      face: {icon: video, label: "{value}%", gauge: true}
+
   fun:
     home_after: {idle: 60, press: 15}      # back to main 15 s after a press, or 60 s after any other use
     keys:
       1: {action: page.home, face: {icon: home, label: Home}}
+      2:                                   # Python: `deck` reaches every module (see README)
+        action:
+          python: |
+            import time
+            from PIL import Image, ImageDraw
+            img = Image.new("RGB", (240, 240), "black")              # a picture drawn in code
+            ImageDraw.Draw(img).ellipse((30, 30, 210, 210), fill="orange")
+            deck.dial.set_face(image=img, label="Sun", replace=True, seconds=5)
+            leds = [deck.base, *deck.knobs, *deck.faders]
+            for led in leds:
+                led.set_light(color="orange")                        # on top of lighting:
+            time.sleep(5)                                            # each press runs on its own thread
+            for led in leds:
+                led.clear_light()
+        face: {icon: sun, label: Sun}
+      3:                                   # the next page, in file order, round and round
+        action: {python: "p = deck.pages; deck.goto(p[(p.index(deck.page) + 1) % len(p)])"}
+        face: {icon: stack-2, label: Next}
     dial:                                  # same volume control, with a GIF behind the gauge
       turn: {target: audio.volume, step: 2, expo: 0.5}
       face: {image: "https://upload.wikimedia.org/wikipedia/commons/2/2c/Rotating_earth_%28large%29.gif",

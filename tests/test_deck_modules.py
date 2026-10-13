@@ -3,7 +3,7 @@
 import pytest
 
 from hubdeck.device import layout
-from hubdeck.plugins.base import value_state
+from hubdeck.plugins.base import muted_state, value_state
 from test_controls import make
 from test_engine import wait_for
 
@@ -180,6 +180,10 @@ def test_base_and_fader_lighting_open_their_modules(write):
     (lambda d: d.knobs[1].set_light(mode="disco"), "bad lighting"),
     (lambda d: d.knobs[1].set_light(colour="red"), "unknown lighting field"),
     (lambda d: d.knobs[1].press(gesture="long_press"), "no on_long_press"),
+    (lambda d: d.dial.set_face(value_of=d.keys[1]), "value_of must be a dial, knob, roller or fader"),
+    (lambda d: d.dial.set_face(label="x", seconds=0), "seconds must be a number above 0"),
+    (lambda d: d.dial.set_face(muted="MUTED"), "muted takes face fields"),
+    (lambda d: d.dial.set_face(muted={"colour": "red"}), "unknown muted face field"),
 ])
 def test_bad_module_calls(write, call, message):
     eng, _, _ = make(write, CONFIG, ALL)
@@ -198,3 +202,106 @@ def test_control_tells_which_control_started_the_code(write):
     eng.step()
     wait_for(lambda: len(seen) == 3)
     assert set(map(repr, seen)) == {"deck.knobs[3]", "('cw', deck.knobs[3])", "deck.keys[1]"}
+
+
+def test_on_turn_runs_after_the_turn(write, recorder):
+    eng, devs, _ = make(write, """
+knobs: {1: {turn: rec.level, on_turn: rec.a}}
+rollers: {1: {turn: {cw: rec.b, ccw: rec.b}, on_turn: [rec.a, rec.start]}}
+""", ALL)
+    devs["knobs"].push("turn", layout.index_of("knobs", 1, 0), 2)
+    eng.step()
+    assert rec(recorder).calls == [("adjust", "level", None, 4), ("a", None)]
+    devs["rollers"].push("turn", layout.index_of("rollers", 1, 0), 2)
+    eng.step()
+    assert rec(recorder).calls[2:] == [("b", None), ("b", None), ("a", None), ("start", None)]
+
+
+def test_dial_face_follows_another_controls_value_for_a_while(write, recorder):
+    eng, devs, clock = make(write, CONFIG, ALL)
+    rec(recorder).emit(value_state("level", None), 40)
+    rec(recorder).emit(value_state("app", "spotify.exe"), 70)
+    eng.deck.dial.set_face(icon="brand-spotify", label="{value}%", gauge=True, value_of=eng.deck.knobs[2],
+                           replace=True, seconds=1.5)
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.label, face.gauge) == ("brand-spotify", "70%", 70)
+    rec(recorder).emit(value_state("app", "spotify.exe"), 72)
+    eng.step()
+    assert eng.deck.dial.face().label == "72%"               # live
+
+    clock.t += 1
+    eng.deck.dial.set_face(value_of=eng.deck.knobs[1], seconds=1.5)   # another knob: the countdown restarts
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.label, face.gauge) == ("brand-spotify", "40%", 40)
+    clock.t += 1
+    eng.step()
+    assert eng.deck.dial.face().icon == "brand-spotify"
+    clock.t += 0.6
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.label, face.gauge) == ("volume", "Dial", None)   # the config's face again
+
+    eng.deck.dial.set_face(label="kept", seconds=1)
+    eng.deck.dial.set_face(label="kept")                     # a later call without seconds keeps it
+    clock.t += 5
+    eng.step()
+    assert eng.deck.dial.face().label == "kept"
+
+
+def test_knob_shows_its_value_on_the_dial_while_turned(write, recorder):
+    eng, devs, clock = make(write, """
+device: {reassert_seconds: 0}
+dial:
+  turn: rec.level
+  state: rec.on                                    # a state that is false doesn't change what {value} shows
+  face: {icon: volume, label: "{value}%", gauge: true}
+  face_on: {icon: volume-off}
+knobs:
+  2:
+    turn: {target: rec.app, arg: spotify.exe}
+    on_turn:
+      python: 'deck.dial.set_face(icon="brand-spotify", label="{value}%", gauge=True, value_of=deck.control, replace=True, seconds=1.5)'
+""", ALL)
+    rec(recorder).emit(value_state("level", None), 40)
+    rec(recorder).emit(value_state("app", "spotify.exe"), 70)
+    rec(recorder).emit("on", False)
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.label, face.gauge) == ("volume", "40%", 40)
+    devs["knobs"].push("turn", layout.index_of("knobs", 2, 0), 1)
+    eng.step()
+    assert rec(recorder).calls == [("adjust", "app", "spotify.exe", 2)]
+    wait_for(lambda: (eng.step(), eng.deck.dial.face().icon)[1] == "brand-spotify")
+    face = eng.deck.dial.face()
+    assert (face.label, face.gauge) == ("70%", 70) and devs["dial"].images
+    clock.t += 1.6
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.label, face.gauge) == ("volume", "40%", 40)
+
+
+def test_face_shows_when_what_it_shows_is_muted(write, recorder):
+    eng, devs, clock = make(write, CONFIG, ALL)
+    rec(recorder).emit(value_state("app", "spotify.exe"), 70)
+    eng.deck.dial.set_face(icon="brand-spotify", label="{value}%", gauge=True, value_of=eng.deck.knobs[2],
+                           muted={"label": "MUTED", "bg": "#c81e28"}, replace=True)
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.label, face.gauge) == ("brand-spotify", "70%", 70)
+    assert eng.deck.knobs[2].muted() is None                       # the plugin hasn't said
+    rec(recorder).emit(muted_state("app", "spotify.exe"), True)
+    eng.step()
+    face = eng.deck.dial.face()
+    assert (face.icon, face.label, face.bg) == ("brand-spotify", "MUTED", (200, 30, 40))
+    assert eng.deck.knobs[2].muted() is True and eng.deck.faders[1].muted() is None
+    rec(recorder).emit(muted_state("app", "spotify.exe"), False)
+    eng.step()
+    assert eng.deck.dial.face().label == "70%"
+
+    eng.deck.dial.set_face(label="{value}", muted={"label": "off"}, replace=True)   # no value_of: its own
+    rec(recorder).emit(value_state("level", None), 40)
+    rec(recorder).emit(muted_state("level", None), True)
+    eng.step()
+    assert eng.deck.dial.face().label == "off"

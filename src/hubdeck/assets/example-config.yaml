@@ -30,6 +30,8 @@ defaults:
 #   discord:
 #     client_id: !secret discord_client_id
 #     client_secret: !secret discord_client_secret
+#   spotify:                         # Spotify's own volume: spotify.volume (needs Premium)
+#     client_id: !secret spotify_client_id
 
 # RGB lighting for the Base, knobs and faders (uncomment what you have). Nothing is stored on the modules.
 # lighting:
