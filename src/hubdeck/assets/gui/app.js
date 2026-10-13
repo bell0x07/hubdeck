@@ -42,6 +42,7 @@ const ACTIONS = [
   { group: "Open & run", items: [
     { label: "Open a website", arg: { kind: "text", placeholder: "https://…" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open" && /^https?:/i.test(a.arg || ""), get: a => a.arg },
     { label: "Open an app, file or folder", arg: { kind: "text", placeholder: () => IS_MAC() ? "Spotify, or /Applications/…" : "C:\\Program Files\\…\\app.exe" }, make: v => ({ open: v || "" }), is: a => a.name === "launch.open", get: a => a.arg },
+    { label: "Switch to an app, or open it", arg: { kind: "text", placeholder: () => IS_MAC() ? "Spotify" : "outlook.exe, or C:\\Program Files\\…\\app.exe" }, make: v => ({ focus: v || "" }), is: a => a.name === "launch.focus" && typeof a.arg === "string", get: a => a.arg },
     { label: "Run a command", arg: { kind: "text", placeholder: () => IS_MAC() ? "e.g. say hello" : "e.g. notepad.exe" }, make: v => ({ run: v || "" }), is: a => a.name === "launch.run" && typeof a.arg === "string", get: a => a.arg },
     { label: "Run a Shortcut", needs: "shortcuts", arg: { kind: "shortcut" }, make: v => ({ "shortcuts.run": v || "" }), is: a => a.name === "shortcuts.run" && typeof a.arg === "string", get: a => a.arg },
     { label: "Flip a value (vars)", arg: { kind: "text", placeholder: "name, e.g. dnd" }, make: v => ({ "vars.toggle": v || "" }), is: a => a.name === "vars.toggle", get: a => a.arg },

@@ -284,7 +284,7 @@ If a module is mounted turned, set `modules.<module>.rotate` to the clockwise tu
 These share the same fields.
 
 - **Gestures:** `action` (same as `on_press`), `on_down`, `on_up`, `on_long_press` and `on_double_press`. A control with only a press action fires immediately on key-down. If it also has a long or double action, the press fires on release, once the gesture is clear. Rollers can't be pressed.
-- **Actions** are written either as `plugin.action` or as `{plugin.action: argument}`. A list runs several actions in order. The short forms are `page`, `keys`, `type`, `media`, `run`, `open` and `python`.
+- **Actions** are written either as `plugin.action` or as `{plugin.action: argument}`. A list runs several actions in order. The short forms are `page`, `keys`, `type`, `media`, `run`, `open`, `focus` and `python`.
 - **Turning** (Dial, knobs, rollers) works one of two ways:
   - `turn: {target: plugin.value, arg: ..., step: 2, invert: false}` adjusts a value by `step` per click.
     - Add `expo` (0–1, like an RC transmitter's expo) to make clicks finer near 0 and coarser near 100. Going from 0 to 100 still takes 100/`step` clicks. With `step: 2, expo: 0.5`, clicks are about 1% at the bottom and 4% at the top. 0 (the default) gives even clicks.
@@ -410,7 +410,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | --- | --- | --- | --- |
 | `page` | `goto` (`{page: name}`), `back`, `home`, `auto_on`, `auto_off`, `auto_toggle` ([switching by app](#switching-pages-by-app)) | `auto`, `app`, `title` (the focused window) | none |
 | `keyboard` | `keys`, `key_down`, `key_up`, `media`, `type` (`cmd`/`win` is Command on macOS) | none | none |
-| `launch` | `open` (file, folder, app or URL; on macOS also an app name), `run` (shell command) | none | none |
+| `launch` | `open` (file, folder, app or URL; on macOS also an app name), `focus` ([an app's window, or open it](#switching-to-an-app)), `run` (shell command) | none | none |
 | `python` | `exec` (`{python: code}`) | none | none |
 | `audio` | `toggle_mute` / `mute` / `unmute` (speakers, microphone, or one app: `{app: spotify.exe}`, `{app: focused}`), `volume_up`, `volume_down`, `set_volume`, `set_output`, `set_input` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output`, `input` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`, or `focused`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
 | `system` | none | `time`, `cpu`, `ram` | none |
@@ -464,6 +464,25 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
     face:    {icon: headphones, label: DAC5}
     face_on: {bg: "#1e2a23"}         # a faint green tint
   ```
+
+### Switching to an app
+
+`{focus: outlook.exe}` brings up the app's window you used last, restored if it's minimised. Only when the app has no window does it open the app, like `{open: ...}`. Pressed again while the app is in front, it goes to the app's next window, and from there round all of them. A long press can open a new window, for apps that open one each time they start, as Outlook does:
+
+```yaml
+1:
+  action: {focus: outlook.exe}
+  on_long_press: {open: outlook.exe}          # hold: a second Outlook window
+  face: {icon: mail, label: Outlook}
+2:                                            # a link doesn't name the app, so give both
+  action: {focus: {app: ms-teams.exe, open: "msteams:"}}
+  face: {icon: brand-teams, label: Teams}
+3: {action: {focus: 'C:\Program Files\Altium\AD25\X2.EXE'}, face: {icon: cpu, label: Altium}}
+```
+
+- **The app** is its program name, as in the log's `focus:` lines, in any case, with or without `.exe`. A path stands for both: its file name is the app, and the path is what opens. A link (`msteams:`, `https:`) needs `{app: ..., open: ...}`, and so does a command that starts a different program, such as `{app: WindowsTerminal.exe, open: wt.exe}`.
+- **Which windows count:** the ones Alt+Tab shows. An app closed to the tray, such as Teams, has none, so the press opens it, which brings its window back. Windows on another virtual desktop don't count either.
+- **macOS:** `focus` opens the app like `open`, since macOS brings a running app to the front by itself. It doesn't go round the app's windows.
 
 ### Python actions
 

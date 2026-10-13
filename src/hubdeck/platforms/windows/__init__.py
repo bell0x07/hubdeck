@@ -62,6 +62,7 @@ class WindowsPlatform(Platform):
 
     def __init__(self):
         self._mutex = None
+        self._windows = None
 
     def app_data_dir(self) -> Path:
         return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
@@ -92,6 +93,12 @@ class WindowsPlatform(Platform):
     def run(self, cmd: str, cwd: str | None = None):
         subprocess.Popen(cmd, shell=True, cwd=cwd, creationflags=CREATE_NO_WINDOW, stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def activate(self, app: str) -> bool:
+        if self._windows is None:
+            from .focus import WinWindows
+            self._windows = WinWindows()
+        return self._windows.activate(app)
 
     def message_box(self, text: str):
         ctypes.windll.user32.MessageBoxW(None, text, "hubdeck", 0x40)

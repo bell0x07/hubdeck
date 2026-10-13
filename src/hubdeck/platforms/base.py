@@ -167,6 +167,12 @@ class Platform(ABC):
     def run(self, cmd: str, cwd: str | None = None):
         """Start a shell command in the background, with no console window."""
 
+    def activate(self, app: str) -> bool:
+        """Bring a window of `app` (a process name, e.g. outlook.exe) to the front: the one used
+        last, or while the app is in front already, its next one. False when the app has no
+        window, or the OS can't do it; launch.focus then opens the app instead."""
+        return False
+
     def message_box(self, text: str):
         """Show a short message to someone who may not have a terminal."""
 

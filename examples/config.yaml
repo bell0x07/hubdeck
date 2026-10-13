@@ -113,6 +113,10 @@ pages:
         face:         {icon: headphones, label: AUDIO}
         face_on:      {icon: headphones-off, label: DEAF, bg: "#c81e28", fg: white}
         face_unknown: {icon: plug-connected-x, label: NO DC, bg: "#c81e28", fg: white}
+      14:                                  # switch to Outlook, or open it; hold for a new window
+        action: {focus: outlook.exe}
+        on_long_press: {open: outlook.exe}
+        face: {icon: mail, label: Outlook}
 
     # These sections apply to every page that doesn't define its own.
     dial:                                  # round screen: system volume with a gauge

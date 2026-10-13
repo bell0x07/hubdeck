@@ -111,6 +111,79 @@ def test_windows_focus_reads_the_foreground_window(monkeypatch):
     assert reader.read().app == "explorer.exe"   # File Explorer
 
 
+def test_launch_focus_switches_to_a_running_app_or_opens_it(monkeypatch):
+    from hubdeck.plugins import launch
+    from hubdeck.plugins.base import PluginContext
+
+    class Plat:
+        calls = []
+
+        def activate(self, app):
+            self.calls.append(("activate", app))
+            return app in {"outlook.exe", "ms-teams.exe"}
+
+        def open(self, target):
+            self.calls.append(("open", target))
+
+    plat = Plat()
+    monkeypatch.setattr(launch, "current", lambda: plat)
+    plugin = launch.LaunchPlugin(PluginContext("launch", lambda *a: None), {})
+    plugin.handle("focus", "outlook.exe")
+    plugin.handle("focus", r"C:\Program Files\Altium\AD25\X2.EXE")
+    plugin.handle("focus", {"app": "ms-teams.exe", "open": "msteams:/_#/calendarv2"})
+    plugin.handle("focus", {"app": "WindowsTerminal.exe", "open": "wt.exe"})
+    plugin.handle("focus", "/Applications/Spotify.app/")
+    assert plat.calls == [
+        ("activate", "outlook.exe"),                              # it has a window: only that comes up
+        ("activate", "X2.EXE"), ("open", r"C:\Program Files\Altium\AD25\X2.EXE"),   # a path: its file name
+        ("activate", "ms-teams.exe"),
+        ("activate", "WindowsTerminal.exe"), ("open", "wt.exe"),
+        ("activate", "Spotify.app"), ("open", "/Applications/Spotify.app/"),
+    ]
+
+
+def test_launch_focus_checks_its_argument():
+    from hubdeck.config.schema import Action, parse_action
+    from hubdeck.plugins.launch import FOCUS_HELP, LaunchPlugin
+
+    assert parse_action({"focus": "outlook.exe"}) == Action(plugin="launch", name="focus", arg="outlook.exe")
+    check = LaunchPlugin.check_action
+    assert check("focus", "outlook.exe") is None
+    assert check("focus", r"C:\Program Files\Altium\AD25\X2.EXE") is None
+    assert check("focus", "%LOCALAPPDATA%\app.exe") is None
+    assert check("focus", {"app": "ms-teams.exe", "open": "msteams:/_#/calendarv2"}) is None
+    assert check("focus", {"app": "wt.exe"}) is None
+    assert "doesn't name the app" in check("focus", "msteams:/_#/calendarv2")
+    assert "doesn't name the app" in check("focus", "https://outlook.office.com")
+    for bad in ("", None, 5, {"open": "msteams:"}, {"app": " "}, {"app": "x.exe", "run": "x"}, {"app": "x.exe", "open": 5}):
+        assert check("focus", bad) == FOCUS_HELP
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows windows")
+def test_windows_focus_picks_the_last_used_window_then_goes_round():
+    from hubdeck.platforms.windows.focus import pick_window
+
+    assert pick_window([], 5) is None
+    assert pick_window([1, 2, 3], 9) == 1        # another app in front: the app's last-used window
+    assert pick_window([1, 2, 3], 1) == 3        # the app in front: its back one, so presses go round
+    assert pick_window([1], 1) == 1
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows windows")
+def test_windows_lists_an_apps_windows():
+    from hubdeck.platforms.windows.focus import WinWindows
+
+    windows = WinWindows()
+    assert windows.windows("no-such-app-hubdeck.exe") == []
+    assert current().activate("no-such-app-hubdeck.exe") is False
+    fg = windows.user32.GetForegroundWindow()
+    window = windows.read()
+    if not fg or window is None or not windows._listed(fg):
+        pytest.skip("no foreground window that Alt+Tab lists")
+    assert fg in windows.windows(window.app.upper())   # any case
+    assert fg in windows.windows(window.app.removesuffix(".exe"))
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file lock")
 def test_single_instance_lock(tmp_path):
     env = {**os.environ, "HUBDECK_HOME": str(tmp_path)}
