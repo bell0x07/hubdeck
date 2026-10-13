@@ -103,7 +103,8 @@ class ControlServer:
 
     def handle(self, req: dict) -> dict:
         """Answer one request (already authenticated). Runs on the server's threads: actions
-        are only queued for the engine thread, and reads take single dict lookups."""
+        are only queued for the engine thread, and reads are single lookups, except the first
+        read of a state fetched on demand (Engine.read_state)."""
         cmd = req.get("cmd")
         try:
             if cmd == "action":
@@ -114,8 +115,8 @@ class ControlServer:
                 name = req.get("name")
                 if not isinstance(name, str) or "." not in name:
                     return {"ok": False, "error": "get needs a state like audio.volume or vars.focus"}
-                state = self.engine.state
-                return {"ok": True, "value": state.get(name), "known": state.get(name) is not None}
+                value = self.engine.read_state(name)
+                return {"ok": True, "value": value, "known": value is not None}
             if cmd == "quit":       # e.g. a freshly installed hubdeck-tray --replace taking over
                 self.engine.stop()
                 self.engine.notify("quit")

@@ -81,6 +81,7 @@ class Plugin:
     actions: ClassVar[dict[str, str]] = {}   # action -> help text
     states: ClassVar[dict[str, str]] = {}    # state -> help text
     state_args: ClassVar[dict[str, str]] = {}   # state that takes an [argument] -> what goes in it
+    fetches_states: ClassVar[bool] = False      # publishes only what watch_states names (deck.state asks first)
     values: ClassVar[dict[str, str]] = {}    # adjustable value (turn/fader target) -> help text
     platforms: ClassVar[tuple[str, ...] | None] = None   # sys.platform values it works on; None = all
 

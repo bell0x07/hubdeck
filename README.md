@@ -547,7 +547,7 @@ On `deck` itself:
 | `deck.auto_switch` | whether pages switch by app; set it to `True` or `False` like `page.auto_on`/`auto_off` |
 | `deck.focused` | the focused window as `(app, title)`, also `.app` and `.title`; `None` until hubdeck has seen one |
 | `deck.run(action, arg=None)` | run any action, written as in the config: `deck.run("discord.toggle_mute")`, `deck.run("keys", "ctrl+c")`, `deck.run({"audio.set_volume": 30})` or a list |
-| `deck.state(name, default=None)`, `deck.states` | read state values, e.g. `deck.state("audio.volume")` |
+| `deck.state(name, default=None)`, `deck.states` | read state values, e.g. `deck.state("audio.volume")`. A Home Assistant state the config doesn't show, like `deck.state("ha.state[sensor.outside]")`, is fetched on the first read, which waits up to 2 s for it |
 | `deck.set_var(name, value)` | set `vars.<name>`, like `{vars.set: ...}` or `hubdeck send set`: faces show it as `{vars.name}`, and `state: vars.name` switches on it |
 | `deck.set_brightness(percent, module="keys")` | screen backlight 0–100 for `keys` or `dial`, until the config's brightness changes |
 | `deck.reload()` | reload the config |
@@ -629,6 +629,7 @@ hubdeck send set focus Work            # set vars.focus
 hubdeck send set weather -             # set vars.weather to the text on stdin, as is
 hubdeck send image picture photo.jpg   # show a picture: image: "{vars.picture}" (- reads stdin)
 hubdeck send get discord.muted         # print a state (empty while unknown)
+hubdeck send get "ha.on[light.desk]"   # Home Assistant states are fetched on first use (up to 2 s)
 ```
 
 - **Values (`vars`):** `set` stores a value that keys and lighting use like any state: `{vars.focus}` in text or labels, `state: vars.dnd` with `face_on`, or a lighting `state`. Keys can change them too (`{vars.toggle: dnd}`). Starting values go under `plugins: {vars: {focus: none}}`, and a name that was never set is unknown.

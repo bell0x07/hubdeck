@@ -36,6 +36,7 @@ TAKEOVER_WINDOW = 4                               # faders pick up the value wit
 FADER_ECHO_SECONDS = 1.0                          # a target value this recent from the fader is its own echo
 FOCUS_SETTLE = 0.3                                # a window must keep focus this long to switch pages
 RECENT_WINDOWS = 20                               # focused windows remembered for the editor's picker
+ASK_SECONDS = 2.0                                 # how long a first read of a state fetched on demand waits
 REPLACE = "replace"                               # in a runtime face: it replaces the config's faces
 VALUE_OF = "value_of"                             # in a runtime face: {value} and gauge follow this control
 MUTED = "muted"                                   # in a runtime face: fields used while its control is muted
@@ -80,6 +81,9 @@ class Engine:
         self.plugins: dict[str, Plugin] = {}
         self._plugin_cfgs: dict[str, dict] = {}
         self.state: dict[str, Any] = {}
+        self._shown_states: frozenset[str] = frozenset()   # plugin.state names the config shows
+        self._asked_states: frozenset[str] = frozenset()   # and those read at runtime, until a reload
+        self._loop_thread: threading.Thread | None = None
         self._state_q: queue.Queue[tuple[str, str, Any]] = queue.Queue()
         self._commands: queue.Queue[tuple[Callable, tuple]] = queue.Queue()
         self.page_stack: list[str] = []
@@ -249,6 +253,33 @@ class Engine:
     def set_brightness(self, kind: str, percent: int):
         self.call(self._set_brightness, kind, percent)
 
+    def read_state(self, name: str) -> Any:
+        """A state's value (None while unknown), for deck.state and hubdeck send get. A state its
+        plugin only fetches on demand (fetches_states), and nothing has shown or read yet, is
+        asked for first: that read waits up to ASK_SECONDS for the value (but never on the
+        engine's own thread)."""
+        if self._ask(name) and threading.current_thread() is not self._loop_thread:
+            deadline = time.monotonic() + ASK_SECONDS
+            while self.state.get(name) is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+        return self.state.get(name)
+
+    def _ask(self, name: str) -> bool:
+        """Have the plugin fetch state `name` if it isn't watched yet; True if it was asked for."""
+        if name in self._shown_states or name in self._asked_states:
+            return False
+        p, _, key = name.partition(".")
+        plugin, parsed = self.plugins.get(p), split_state(key)
+        if plugin is None or parsed is None or not plugin.fetches_states or                 plugin.check_state(parsed[0], self._plugin_cfgs.get(p, {}), parsed[1]):
+            return False
+        self.call(self._ask_state, name)
+        return True
+
+    def _ask_state(self, name: str):
+        if name not in self._asked_states:
+            self._asked_states |= {name}
+            self._watch_states()
+
     def emit_state(self, plugin: str, key: str, value: Any):
         self._state_q.put((plugin, key, value))
 
@@ -320,6 +351,7 @@ class Engine:
 
     # -- loop --------------------------------------------------------------
     def step(self):
+        self._loop_thread = threading.current_thread()
         now = self.clock()
         self._handle_commands()
         if self.source and now >= self._reload_check_at:
@@ -415,6 +447,7 @@ class Engine:
             if name not in self.plugins:
                 self._start_plugin(name, settings)
         self._watch_targets()
+        self._asked_states = frozenset()   # read again, they're asked for again
         self._watch_states()
         self._update_light_zones()
         self.lighting.forget()
@@ -461,9 +494,12 @@ class Engine:
                 log.exception("plugin %s: watch failed", name)
 
     def _watch_states(self):
-        """Tell each plugin which of its states the config shows, as (state, argument) pairs."""
+        """Tell each plugin which of its states the config shows or were read at runtime,
+        as (state, argument) pairs."""
+        self._shown_states = frozenset(f"{p}.{key}" for p, key in self.cfg.state_refs())
         per_plugin: dict[str, set] = {}
-        for p, key in self.cfg.state_refs():
+        for name in self._shown_states | self._asked_states:
+            p, _, key = name.partition(".")
             if parsed := split_state(key):
                 per_plugin.setdefault(p, set()).add(parsed)
         for name, plugin in self.plugins.items():
