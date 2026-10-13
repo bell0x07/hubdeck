@@ -11,7 +11,7 @@ from datetime import date, datetime
 from typing import Any, Callable
 
 from .config import Config, ConfigError, ConfigSource, KeyDef
-from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef, FaderDef, LightZone
+from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef, FaderDef, LightZone, state_on
 from .deck import Deck
 from .device import DeviceError
 from .device.manager import RETRY_SECONDS, DeviceManager, present_kinds
@@ -892,7 +892,7 @@ class Engine:
         if not replace and kd is not None:
             merged.update(kd.face.model_dump(exclude_unset=True))
             if kd.state:
-                on = self.state.get(kd.state)
+                on = state_on(kd.state, self.state.get)
                 overlay = kd.face_unknown if on is None else kd.face_on if on else None
                 if overlay is not None:
                     merged.update(overlay.model_dump(exclude_unset=True))

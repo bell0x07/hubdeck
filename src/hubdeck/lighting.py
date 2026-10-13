@@ -11,7 +11,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .config.schema import Animate, Light, LightZone
+from .config.schema import Animate, Light, LightZone, state_on
 from .device import DeviceError
 from .render.faces import parse_color
 
@@ -56,7 +56,7 @@ def resolve(zone: LightZone, state_get: Callable[[str], Any], value: Any, now: f
     """Desired LED state of one zone right now (gamma 1 = no correction)."""
     fields = zone.model_dump(exclude_unset=True, exclude={"state", "on", "unknown"})
     if zone.state:
-        v = state_get(zone.state)
+        v = state_on(zone.state, state_get)
         overlay = zone.unknown if v is None else zone.on if v else None
         if overlay is not None:
             fields.update(overlay.model_dump(exclude_unset=True))

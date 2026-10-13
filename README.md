@@ -292,6 +292,7 @@ These share the same fields.
   - `turn: audio.volume` is short for a target.
 - **After a turn:** `on_turn` runs actions after each turn of the Dial, a knob or a roller, once the `turn` target is adjusted or its `cw`/`ccw` actions have run. A fast spin can arrive as one turn of several clicks. To show a knob's value on the Dial while you turn it, see [Controlling hubdeck from Python](#controlling-hubdeck-from-python).
 - **State:** `state: plugin.state` uses `face_on` while the value is true and `face_unknown` while it's unknown, for example when Discord is closed. Fields you don't set in the overlay are taken from `face`.
+  - `state: {plugin.state: value}` is on while the value matches instead: a text it contains, in any case, or a number or true/false it equals. `state: {audio.output: DAC5}` is on while DAC5 is the default output.
 - **Pages:** each page can have its own `dial`, `knobs`, `rollers` and `faders` sections. A page without one uses the start page's section.
 - **Going home by itself:** `home_after: {idle: 60, press: 15}` on a page takes it back to the start page once it's left alone.
   - Every use of the modules starts the count again: `press` seconds after pressing a key, the Dial or a knob, and `idle` seconds after turning, moving a fader or arriving on the page.
@@ -454,12 +455,14 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
   knobs:
     2: {turn: {target: spotify.volume, step: 2}}
   ```
-- **Switching devices:** `audio.set_output` and `audio.set_input` make the first active playback or recording device whose name contains the argument (any case) the default. On Windows that's the Default Device, not the Default Communication Device. `audio.output` and `audio.input` show the current default's name. One key can switch both:
+- **Switching devices:** `audio.set_output` and `audio.set_input` make the first active playback or recording device whose name contains the argument (any case) the default. On Windows that's the Default Device, not the Default Communication Device. `audio.output` and `audio.input` show the current default's name. One key can switch both, and show while it's the default:
 
   ```yaml
   9:
     action: [{audio.set_output: DAC5}, {audio.set_input: Scarlett 2i2}]
-    face: {icon: headphones, label: DAC5}
+    state: {audio.output: DAC5}      # on while the default output's name contains DAC5
+    face:    {icon: headphones, label: DAC5}
+    face_on: {bg: "#1e2a23"}         # a faint green tint
   ```
 
 ### Python actions

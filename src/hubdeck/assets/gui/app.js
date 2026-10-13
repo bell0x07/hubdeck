@@ -506,13 +506,25 @@ function lookFields(base, isDial, isOverlay) {
   return fields;
 }
 
+// A state set in YAML that the pickers don't list, e.g. {audio.output: DAC5}: kept as one option.
+function ownState(state) {
+  if (!state || typeof state !== "object") return state ? { key: state, label: STATES[state] || state } : null;
+  const [[name, want]] = Object.entries(state);
+  return { key: JSON.stringify(state), label: `${STATES[name] || name}: ${want}` };
+}
+
+function stateOptions(own) {
+  const keys = [...new Set([...Object.keys(STATES), ...(own ? [own.key] : [])])];
+  return keys.map(k => h("option", { value: k, selected: k === own?.key }, k === own?.key ? own.label : STATES[k]));
+}
+
 function stateFields() {
-  const states = [...new Set([...Object.keys(STATES), ...(cur.raw.state ? [cur.raw.state] : [])])];
-  const pick = h("select", { onchange: e => { setPath(cur.raw, ["state"], e.target.value || undefined);
+  const own = ownState(cur.raw.state);
+  const pick = h("select", { onchange: e => { setPath(cur.raw, ["state"], e.target.value === own?.key ? cur.raw.state : e.target.value || undefined);
     if (!e.target.value) { delete cur.raw.face_on; delete cur.raw.face_unknown; }
     else if (!cur.raw.face_on) cur.raw.face_on = { bg: RED, fg: "white" };
     changed(); buildForm(); } },
-    h("option", { value: "" }, "never"), ...states.map(s => h("option", { value: s, selected: s === cur.raw.state }, STATES[s] || s)));
+    h("option", { value: "" }, "never"), ...stateOptions(own));
   const out = [field("Change look when", pick)];
   if (cur.raw.state) out.push(h("div", { class: "overlay" }, h("div", { class: "muted" }, "…then look like this (empty = unchanged):"),
     ...lookFields(["face_on"], false, true)));
@@ -852,8 +864,9 @@ $("#btn-lighting").onclick = async () => {
     if (hasValue) rows.push(field("", h("label", { class: "check" }, h("input", { type: "checkbox", checked: z.brightness === "value",
       onchange: e => set("brightness", e.target.checked ? "value" : undefined) }), "brighter when the value is higher")));
     const on = z.on ?? {};
-    const stateSel = h("select", { onchange: e => { set("state", e.target.value); if (!e.target.value) set("on", undefined); else { on.color ??= RED; set("on", on); } draw(); } },
-      h("option", { value: "" }, "never"), ...Object.entries(STATES).map(([k, label]) => h("option", { value: k, selected: z.state === k }, label)));
+    const own = ownState(z.state), kept = z.state;
+    const stateSel = h("select", { onchange: e => { set("state", e.target.value === own?.key ? kept : e.target.value); if (!e.target.value) set("on", undefined); else { on.color ??= RED; set("on", on); } draw(); } },
+      h("option", { value: "" }, "never"), ...stateOptions(own));
     const onBox = h("span", { class: "argwrap" });
     const draw = () => onBox.replaceChildren(...(z.state ? [h("span", { class: "muted" }, "then"),
       h("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(on.color || "") ? on.color : RED, oninput: e => { on.color = e.target.value; set("on", on); } }),

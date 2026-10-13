@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -75,6 +75,39 @@ def parse_actions(raw: Any) -> list[Action]:
     return [parse_action(raw)]
 
 
+def _check_state(v: str | dict | None) -> str | dict | None:
+    """`state: plugin.state` (on while truthy) or `state: {plugin.state: value}` (on while it matches)."""
+    if isinstance(v, dict):
+        if len(v) != 1:
+            raise ValueError("state as a mapping takes one plugin.state and its value, e.g. {audio.output: DAC5}")
+        if isinstance(next(iter(v.values())), (dict, list, type(None))):
+            raise ValueError(f"state {v!r}: the value to match must be a text, number or true/false")
+    name = state_name(v) if v is not None else None
+    if name is not None and not re.fullmatch(NAME_RE, name):
+        raise ValueError(f"state {name!r} must look like plugin.state (e.g. discord.muted)")
+    return v
+
+
+def state_name(state: str | dict) -> str:
+    """The plugin.state a `state` reads."""
+    return next(iter(state)) if isinstance(state, dict) else state
+
+
+def state_on(state: str | dict, get: Callable[[str], Any]) -> bool | None:
+    """Whether a `state` is on, None while its value is unknown. `plugin.state` is on while the
+    value is truthy; `{plugin.state: value}` while it matches: a text contained in it (any case),
+    anything else equal."""
+    value = get(state_name(state))
+    if value is None:
+        return None
+    if not isinstance(state, dict):
+        return bool(value)
+    want = next(iter(state.values()))
+    if isinstance(want, str):
+        return want.casefold() in str(value).casefold()
+    return value == want
+
+
 def _check_color(v: str | None) -> str | None:
     if v is not None:
         try:
@@ -123,9 +156,9 @@ class KeyDef(_Model):
     on_up: list[Action] = []
     on_long_press: list[Action] = []
     on_double_press: list[Action] = []
-    state: str | None = None
+    state: str | dict[str, Any] | None = None   # plugin.state, or {plugin.state: value to match}
     face: Face = Face()
-    face_on: Face | None = None        # used while `state` is truthy
+    face_on: Face | None = None        # used while `state` is on
     face_unknown: Face | None = None   # used while `state` is unknown (plugin offline)
 
     @model_validator(mode="before")
@@ -146,9 +179,7 @@ class KeyDef(_Model):
     @field_validator("state")
     @classmethod
     def _state_name(cls, v):
-        if v is not None and not re.fullmatch(r"[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*", v):
-            raise ValueError(f"state {v!r} must look like plugin.state (e.g. discord.muted)")
-        return v
+        return _check_state(v)
 
     def actions(self, gesture: str) -> list[Action]:
         return getattr(self, f"on_{gesture}")
@@ -395,16 +426,14 @@ class Light(_Model):
 
 
 class LightZone(Light):
-    state: str | None = None
-    on: Light | None = None          # used while `state` is truthy
+    state: str | dict[str, Any] | None = None   # like a key's
+    on: Light | None = None          # used while `state` is on
     unknown: Light | None = None     # used while `state` is unknown
 
     @field_validator("state")
     @classmethod
     def _state_name(cls, v):
-        if v is not None and not re.fullmatch(NAME_RE, v):
-            raise ValueError(f"state {v!r} must look like plugin.state (e.g. discord.muted)")
-        return v
+        return _check_state(v)
 
 
 class Lighting(_Model):
@@ -613,14 +642,14 @@ class Config(_Model):
         refs = set()
         for _, kd in self.iter_defs():
             if kd.state:
-                refs.add(tuple(kd.state.split(".", 1)))
+                refs.add(tuple(state_name(kd.state).split(".", 1)))
             for f in kd.faces():
                 for s in (f.text, f.label, f.image):
                     if s:
                         refs.update((p, n) for p, n, _ in TEMPLATE_RE.findall(s))
         for _, _, zone in self.lighting.zones():
             if zone.state:
-                refs.add(tuple(zone.state.split(".", 1)))
+                refs.add(tuple(state_name(zone.state).split(".", 1)))
         return refs
 
     def used_plugins(self) -> set[str]:

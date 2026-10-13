@@ -85,6 +85,11 @@ pages:
         state: page.auto
         face:    {icon: exchange-off, label: MANUAL}
         face_on: {icon: arrows-exchange, label: "{page.app}"}
+      9:                                   # switch speakers; tinted while they're the default output
+        action: {audio.set_output: Speakers}
+        state: {audio.output: Speakers}    # on while the state contains this text (any case)
+        face:    {icon: device-speaker, label: Speakers}
+        face_on: {bg: "#1e2a23"}
       10:                                  # a list of actions runs in order
         action: [{keys: "win+d"}, {media: play_pause}]
         face: {icon: coffee, label: Break}
