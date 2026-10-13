@@ -132,8 +132,9 @@ def test_full_showcase_example_is_valid(monkeypatch):
     path = Path(__file__).resolve().parents[1] / "examples" / "config.yaml"
     cfg = load_config(path, secrets=path.parent / "no-secrets.yaml")
     assert cfg.used_modules() == {"keys", "dial", "knobs", "rollers", "faders", "base"}
-    assert set(cfg.pages) == {"main", "media", "fun"}
-    assert cfg.pages["media"].match and cfg.auto_switch.ignore
+    assert set(cfg.pages) == {"main", "media", "call", "fun"}
+    assert cfg.pages["media"].match and cfg.auto_switch.ignore and cfg.auto_switch.on_focus
+    assert cfg.pages["call"].sticky and cfg.pages["call"].match[0].rank == 2   # app + title
 
 
 def test_on_off_yes_no_stay_text(write):
