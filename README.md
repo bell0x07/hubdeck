@@ -420,6 +420,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `spotify` | `volume_up`, `volume_down` (step in %, default 5), `set_volume` (0–100), `toggle_mute` / `mute` / `unmute` | `volume`, `muted`, `device` (where Spotify plays) | `volume` (Spotify's own slider, [setup](#spotify-setup)) |
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
+| `ha` (Home Assistant) | `toggle`, `turn_on`, `turn_off` (an entity or a list), `call` (`{service: light.turn_on, entity: ..., data: {...}}`), `toggle_mute` (media players) | `connected`, `on[entity]`, `state[entity]`, `attr[entity:attribute]` | `level` (arg: an entity) |
 
 - **Media keys:** `play_pause`, `next`, `prev`, `stop`, `vol_up`, `vol_down` and `mute`.
 - **What's playing (Windows):** the `media` states follow the app that the media keys control, the one the volume flyout shows. `media.playing` is true while it plays and false while it's paused. `media.app` is the app's Start menu name, such as `Spotify`, `Brave` or `Media Player`, and `media.title` and `media.artist` describe the track. All four are unknown while no app has media open. A play/pause key that shows which app it controls:
@@ -612,6 +613,56 @@ plugins:
 ```
 
 When hubdeck starts without a Spotify login, it opens Spotify's login page in your browser. The login is then kept in `spotify_token.json` in the hubdeck folder. If you skip the login, or it expires, using a Spotify control opens the page again.
+
+### Home Assistant setup
+
+hubdeck talks to Home Assistant over its WebSocket API. Home Assistant pushes every change, so keys and lights follow within moments.
+
+1. In Home Assistant, open your profile › **Security** › **Long-lived access tokens** › **Create token**, and name it `hubdeck`.
+2. Put the token in `secrets.yaml` as `ha_token: "..."`.
+3. Add the plugin, with Home Assistant's address as you open it in the browser:
+
+```yaml
+plugins:
+  ha:
+    url: http://homeassistant.local:8123   # https:// works too
+    token: !secret ha_token
+    # verify_ssl: false                     # only for a self-signed certificate
+
+pages:
+  house:
+    keys:
+      1:
+        action: {ha.toggle: light.desk}
+        state: ha.on[light.desk]
+        face:    {icon: bulb-off, label: Desk}
+        face_on: {icon: bulb, label: Desk, bg: "#f5b400", fg: black}
+      2: {action: {ha.turn_on: scene.movie_night}, face: {icon: movie, label: Movie}}
+      3: {face: {text: "{ha.state[sensor.outside_temperature]:.1f}°", label: Outside}}
+    dial:                                  # thermostat; press turns it on and off
+      turn: {target: ha.level, arg: climate.living_room}
+      action: {ha.toggle: climate.living_room}
+      face: {text: "{ha.attr[climate.living_room:temperature]:.1f}°", gauge: true}
+    knobs:
+      1: {turn: {target: ha.level, arg: light.desk}}
+```
+
+- **Entities** are written by their entity ID, as in Home Assistant's Settings › Entities.
+- **Actions:**
+  - `toggle`, `turn_on` and `turn_off` take one entity or a list, of any domain that switches, scenes and scripts included. Locks don't toggle: use `{ha.call: {service: lock.unlock, entity: lock.front}}`.
+  - `call` runs any service (Home Assistant calls them actions): `service`, then optionally `entity` (one or a list) and `data`, as in Developer tools › Actions.
+  - `toggle_mute` mutes or unmutes a media player.
+- **States:**
+  - `ha.on[entity]` is true while Home Assistant's dashboard shows the entity as active: on, open, playing, unlocked, home, heating and so on.
+  - `ha.state[entity]` is the state itself, as a number where it is one, so `{ha.state[sensor.x]:.1f}` works.
+  - `ha.attr[entity:attribute]` is one attribute, such as `ha.attr[media_player.tv:media_title]`.
+  - They're unknown (`face_unknown`) while the entity is unavailable, or while Home Assistant can't be reached; `ha.connected` tells which.
+  - Inside a one-line `{…}` mapping, quote them: `{state: "ha.on[light.desk]", …}`.
+- **`ha.level`** is an entity's level 0–100 for a Dial, knob, roller or fader: a light's brightness (0 turns it off, and turning up from off turns it on), a media player's volume (muted counts for `set_face(muted=…)`), a cover's position, a fan's speed, a `number` or `input_number` within its range, or a climate's target temperature within its range.
+  - A climate moves by one of its own steps (usually 0.5 °C) per click at the default `step: 2`; `step: 4` moves two. `{value}` is 0–100, so show the temperature with `{ha.attr[climate.x:temperature]}`.
+  - Turning shows the new level straight away; hubdeck sends it at most 10 times a second per entity.
+- **Only the entities the config uses** are subscribed to. `deck.state("ha.state[sensor.x]")` in Python and `hubdeck send get` fetch any other one on first use, which waits up to 2 s.
+- **When Home Assistant can't be reached,** hubdeck retries every 5 s, and actions pressed meanwhile are dropped, not saved for later. A refused token isn't retried until the config changes.
 
 ## Shortcuts, scripts and automation
 

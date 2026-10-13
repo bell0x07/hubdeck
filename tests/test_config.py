@@ -129,10 +129,11 @@ def test_full_showcase_example_is_valid(monkeypatch):
     monkeypatch.setenv("HUBDECK_DISCORD_CLIENT_ID", "123")
     monkeypatch.setenv("HUBDECK_DISCORD_CLIENT_SECRET", "dummy")
     monkeypatch.setenv("HUBDECK_SPOTIFY_CLIENT_ID", "dummy")
+    monkeypatch.setenv("HUBDECK_HA_TOKEN", "dummy")
     path = Path(__file__).resolve().parents[1] / "examples" / "config.yaml"
     cfg = load_config(path, secrets=path.parent / "no-secrets.yaml")
     assert cfg.used_modules() == {"keys", "dial", "knobs", "rollers", "faders", "base"}
-    assert set(cfg.pages) == {"main", "media", "call", "fun"}
+    assert set(cfg.pages) == {"main", "media", "call", "fun", "house"}
     assert cfg.pages["media"].match and cfg.auto_switch.ignore and cfg.auto_switch.on_focus
     assert cfg.pages["call"].sticky and cfg.pages["call"].match[0].rank == 2   # app + title
 

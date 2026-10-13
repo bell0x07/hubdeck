@@ -1,6 +1,8 @@
 # Plan: OBS Studio and Streamlabs Desktop, and Home Assistant
 
-Status: plan only, nothing built yet (2026-10-12). Facts marked **[verify]** come from
+Status (2026-10-13): 2A, Home Assistant controlling entities, is built on the `home-assistant` branch,
+with the groundwork it needs: the shared WebSocket client and states with an argument. Not built yet:
+the editor pickers and presets, OBS and Streamlabs, and 2B. Facts marked **[verify]** come from
 third-party sources or memory and must be checked against the real app before coding.
 
 ## What we want
