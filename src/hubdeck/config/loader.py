@@ -114,9 +114,7 @@ def check_references(cfg: Config) -> list[str]:
                 problems.append(f"{where}: 'gauge' and {{value}} need a turn target to show")
                 break
         problems += _check_actions(cfg, where, kd.all_actions())
-        refs = []
-        if kd.state:
-            refs.append(state_name(kd.state))
+        refs = [state_name(state) for state in kd.states()]
         for f in kd.faces():
             for s in (f.text, f.label, f.image):
                 refs += [f"{p}.{n}" for p, n, _ in TEMPLATE_RE.findall(s or "")]

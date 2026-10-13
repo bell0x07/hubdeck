@@ -67,6 +67,8 @@ def test_missing_secret(write):
     ("keys: {1: {face_on: {bg: red}}}", "need a 'state'"),
     ("keys: {1: {state: {rec.missing: x}, face_on: {bg: red}}}", "no state 'missing'"),
     ("keys: {1: {state: {rec.on: x, rec.value: y}}}", "one plugin.state"),
+    ("keys: {1: {layers: [{bg: red}]}}", r"layers\.0\.state"),
+    ("keys: {1: {layers: [{state: rec.missing, bg: red}]}}", "no state 'missing'"),
     ("keys: {1: {state: {rec.value: [x]}}}", "text, number or true/false"),
     ("lighting: {base: {state: {Rec.value: x}, on: {color: red}}}\nkeys: {1: {action: rec.a}}", "must look like plugin.state"),
     ("keys: {1: {colour: red}}", "colour"),

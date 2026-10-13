@@ -112,6 +112,28 @@ keys:
     assert dev.images[0] == on
 
 
+def test_layers_follow_their_own_states(write, recorder):
+    eng, _, _ = make(write, """
+keys:
+  1:
+    state: rec.on
+    face:    {icon: bulb-off, label: WC, bg: red}
+    face_on: {icon: bulb}
+    layers:
+      - {state: {rec.value: open}, bg: black, label: "{rec.value}"}
+      - {state: {rec.value: wide}, label: WIDE}
+""")
+    plugin = rec(recorder)
+    face = lambda: eng.screen_face(("keys", 1))
+    assert (face().icon, face().label, face().bg) == ("bulb-off", "WC", (255, 0, 0))   # layers unknown: off
+    plugin.emit("on", True); plugin.emit("value", "open"); eng.step()
+    assert (face().icon, face().label, face().bg) == ("bulb", "open", (0, 0, 0))
+    plugin.emit("on", False); plugin.emit("value", "wide open"); eng.step()
+    assert (face().icon, face().label, face().bg) == ("bulb-off", "WIDE", (0, 0, 0))    # the later layer wins
+    plugin.emit("value", "shut"); eng.step()
+    assert (face().icon, face().label, face().bg) == ("bulb-off", "WC", (255, 0, 0))
+
+
 def test_live_text_only_rewrites_when_text_changes(write, recorder):
     eng, dev, _ = make(write)
     plugin = rec(recorder)

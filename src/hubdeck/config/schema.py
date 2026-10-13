@@ -155,6 +155,16 @@ class Face(Style):
         return self
 
 
+class Layer(Face):
+    """Face fields used on top while `state` is on, so one control can show several states."""
+    state: str | dict[str, Any]
+
+    @field_validator("state")
+    @classmethod
+    def _state_name(cls, v):
+        return _check_state(v)
+
+
 class KeyDef(_Model):
     on_press: list[Action] = []
     on_down: list[Action] = []
@@ -165,6 +175,7 @@ class KeyDef(_Model):
     face: Face = Face()
     face_on: Face | None = None        # used while `state` is on
     face_unknown: Face | None = None   # used while `state` is unknown (plugin offline)
+    layers: list[Layer] = []           # on top, in order, each while its own state is on
 
     @model_validator(mode="before")
     @classmethod
@@ -193,7 +204,11 @@ class KeyDef(_Model):
         return [a for g in GESTURES for a in self.actions(g)]
 
     def faces(self) -> list[Face]:
-        return [f for f in (self.face, self.face_on, self.face_unknown) if f is not None]
+        return [f for f in (self.face, self.face_on, self.face_unknown, *self.layers) if f is not None]
+
+    def states(self) -> list[str | dict]:
+        """The `state` and every layer's."""
+        return ([self.state] if self.state else []) + [layer.state for layer in self.layers]
 
 
 class TurnDef(_Model):
@@ -653,8 +668,8 @@ class Config(_Model):
     def state_refs(self) -> set[tuple[str, str]]:
         refs = set()
         for _, kd in self.iter_defs():
-            if kd.state:
-                refs.add(tuple(state_name(kd.state).split(".", 1)))
+            for state in kd.states():
+                refs.add(tuple(state_name(state).split(".", 1)))
             for f in kd.faces():
                 for s in (f.text, f.label, f.image):
                     if s:

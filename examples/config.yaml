@@ -251,6 +251,12 @@ pages:
       6:                                   # any service, with data
         action: {ha.call: {service: notify.mobile_app_phone, data: {message: "Coffee's ready"}}}
         face: {icon: coffee, label: Ping}
+      7:                                   # two states on one key: the icon follows the light, layers the door
+        state: ha.on[light.bathroom]
+        face:    {icon: bulb-off, label: Bathroom}
+        face_on: {icon: bulb}
+        layers:                            # on top, in order, each while its own state is on
+          - {state: {"ha.state[binary_sensor.bathroom_door]": "off"}, bg: "#c81e28", label: Busy}   # door closed
     dial:                                  # thermostat: one of its steps per click; press = on/off
       turn: {target: ha.level, arg: climate.living_room}
       action: {ha.toggle: climate.living_room}

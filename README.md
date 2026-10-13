@@ -294,6 +294,16 @@ These share the same fields.
 - **State:** `state: plugin.state` uses `face_on` while the value is true and `face_unknown` while it's unknown, for example when Discord is closed. Fields you don't set in the overlay are taken from `face`.
   - `state: {plugin.state: value}` is on while the value matches instead: a text it contains, in any case, or a number or true/false it equals. `state: {audio.output: DAC5}` is on while DAC5 is the default output.
   - Some states take an argument in brackets, such as `ha.on[light.desk]` or `{ha.state[sensor.outside]:.1f}`. Inside a one-line `{…}` mapping, quote it: `{state: "ha.on[light.desk]", …}`. Unquoted, YAML reads the `[` as the start of a list.
+  - `layers` show more states on the same face. Each layer has its own `state` and any face fields, used while that state is on, on top of `face` and `face_on` in list order. Fields a layer doesn't set stay as they are, so the icon can follow one state and the background another:
+
+    ```yaml
+    7:
+      state: ha.on[light.bathroom]               # the icon: the light
+      face:    {icon: bulb-off, label: Bathroom}
+      face_on: {icon: bulb}
+      layers:                                    # the background and label: the door, while it's closed
+        - {state: {"ha.state[binary_sensor.bathroom_door]": "off"}, bg: "#c81e28", label: Busy}
+    ```
 - **Pages:** each page can have its own `dial`, `knobs`, `rollers` and `faders` sections. A page without one uses the start page's section.
 - **Going home by itself:** `home_after: {idle: 60, press: 15}` on a page takes it back to the start page once it's left alone.
   - Every use of the modules starts the count again: `press` seconds after pressing a key, the Dial or a knob, and `idle` seconds after turning, moving a fader or arriving on the page.

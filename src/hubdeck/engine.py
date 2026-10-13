@@ -957,6 +957,9 @@ class Engine:
                 overlay = kd.face_unknown if on is None else kd.face_on if on else None
                 if overlay is not None:
                     merged.update(overlay.model_dump(exclude_unset=True))
+            for layer in kd.layers:
+                if state_on(layer.state, self.state.get):
+                    merged.update(layer.model_dump(exclude_unset=True, exclude={"state"}))
         if override is not None:
             merged.update(override)
         if value is _UNSET:
