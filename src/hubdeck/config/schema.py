@@ -359,11 +359,18 @@ class Page(_Model):
     faders: dict[int, FaderDef] = {}
     match: list[WindowMatch] = []        # switch to this page when one of these windows has focus
     sticky: bool = False                 # while it's on screen, focus changes don't switch pages
+    on_page_enter: list[Action] = []     # run when the page comes on screen
+    on_page_exit: list[Action] = []      # run when it goes off screen
 
     @field_validator("match", mode="before")
     @classmethod
     def _one_match(cls, v):
         return _window_list(v)
+
+    @field_validator("on_page_enter", "on_page_exit", mode="before")
+    @classmethod
+    def _actions(cls, v):
+        return parse_actions(v)
 
     @field_validator("keys")
     @classmethod
@@ -661,6 +668,7 @@ class Config(_Model):
         names = set(self.plugins)
         names.update(a.plugin for _, kd in self.iter_defs() for a in kd.all_actions())
         names.update(a.plugin for a in self.auto_switch.on_focus)
+        names.update(a.plugin for p in self.pages.values() for a in p.on_page_enter + p.on_page_exit)
         names.update(p for p, _ in self.state_refs())
         names.update(t.split(".", 1)[0] for _, t, _ in self.iter_targets())
         return names

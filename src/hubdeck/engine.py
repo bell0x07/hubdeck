@@ -42,7 +42,8 @@ VALUE_OF = "value_of"                             # in a runtime face: {value} a
 MUTED = "muted"                                   # in a runtime face: fields used while its control is muted
 _UNSET = object()
 Control = tuple[str, int]                         # (module, config number), e.g. ("knobs", 2); dial, base: 1
-Source = tuple[str, str, int]                     # (page, module, number) an action comes from
+Source = tuple[str, str | None, int | None]       # (page, module, number) an action comes from;
+                                                  # (page, None, None): the page's on_page_enter/exit
 
 
 LINE_FMT = re.compile(r"line(\d+)")
@@ -604,6 +605,7 @@ class Engine:
         return self.cfg.section(page, kind).get(number)
 
     def _set_pages(self, stack: list[str], force: bool = False):
+        shown = self.current_page
         changed = stack != self.page_stack
         self.page_stack = stack
         if not (changed or force):
@@ -622,6 +624,16 @@ class Engine:
         if changed:
             log.info("page: %s", self.current_page)
             self._notify("page", self.current_page)
+        if self.current_page != shown:
+            self._page_hooks(shown, self.current_page)
+
+    def _page_hooks(self, left: str | None, shown: str):
+        """Run the on_page_exit actions of the page that went off screen, then the on_page_enter
+        ones of the page now on it. Their source is the page itself: (page, None, None)."""
+        for page, hook in ((left, "on_page_exit"), (shown, "on_page_enter")):
+            if page in self.cfg.pages:            # a page a reload removed has no actions left
+                for action in getattr(self.cfg.pages[page], hook):
+                    self._invoke(action, (page, None, None))
 
     # -- switching pages by app ---------------------------------------------
     def _poll_focus(self, now: float):

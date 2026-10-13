@@ -231,6 +231,8 @@ pages:
 
   house:                                   # Home Assistant
     home_after: 60
+    on_page_enter: {python: 'deck.base.set_light(color="#f5b400")'}   # the Base turns amber while it's shown
+    on_page_exit:  {python: 'deck.base.clear_light()'}                 # and goes back to its config lighting
     keys:
       1: {action: page.back, face: {icon: arrow-left, label: Back}}
       2:                                   # a light, lit while it's on
