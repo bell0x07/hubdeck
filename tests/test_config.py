@@ -102,13 +102,14 @@ def test_example_config_is_valid():
     assert set(cfg.pages) == {"main", "media"}
 
 
-def test_example_config_commented_sections_are_valid(write):
-    """The commented-out dial/knobs/rollers/faders/lighting/match examples must work when uncommented."""
+def test_example_config_commented_sections_are_valid(write, monkeypatch):
+    """The commented-out plugins/dial/knobs/rollers/faders/lighting/match examples, and the Discord
+    and Home Assistant keys, must work when uncommented."""
     import re
     from hubdeck.paths import EXAMPLE_CONFIG
     out, uncomment = [], False
     for line in EXAMPLE_CONFIG.read_text(encoding="utf-8").splitlines():
-        if re.match(r"^# lighting:|^\s+# (dial|knobs|rollers|faders|match):", line):
+        if re.match(r"^# (lighting|plugins):|^\s+# (dial|knobs|rollers|faders|match|11|13):", line):
             uncomment = True
         elif uncomment and not re.match(r"^\s*#( |$)", line):
             uncomment = False
@@ -119,8 +120,12 @@ def test_example_config_commented_sections_are_valid(write):
         out.append(line)
     text = "\n".join(out)
     assert "\n    dial:" in text and "\nlighting:" in text
+    for name in ("DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "SPOTIFY_CLIENT_ID", "HA_TOKEN"):
+        monkeypatch.setenv(f"HUBDECK_{name}", "dummy")
     cfg = load_config(write("config.yaml", text))
     assert {"dial", "knobs", "rollers", "faders", "base"} <= cfg.used_modules()
+    assert {"discord", "spotify", "ha"} <= cfg.used_plugins()
+    assert ("ha", "on[light.desk]") in cfg.state_refs()
     assert cfg.pages["media"].match[0].app == "spotify.exe"
 
 
