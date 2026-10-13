@@ -103,8 +103,7 @@ def check_references(cfg: Config) -> list[str]:
             problems.append(f"{where}: {err}")
     for kind, idx, zone in cfg.lighting.zones():
         for ref in [state_name(zone.state)] if zone.state else []:
-            p, n = ref.split(".", 1)
-            if p in REGISTRY and (err := REGISTRY[p].check_state(n, cfg.plugins.get(p) or {})):
+            if err := check_state_ref(cfg, ref):
                 problems.append(f"lighting.{kind}: {err}")
         if (zone.on or zone.unknown) and not zone.state:
             problems.append(f"lighting.{kind}: 'on'/'unknown' need a 'state' to switch on")
@@ -122,13 +121,28 @@ def check_references(cfg: Config) -> list[str]:
             for s in (f.text, f.label, f.image):
                 refs += [f"{p}.{n}" for p, n, _ in TEMPLATE_RE.findall(s or "")]
         for ref in refs:
-            p, n = ref.split(".", 1)
-            if p in REGISTRY and (err := REGISTRY[p].check_state(n, cfg.plugins.get(p) or {})):
+            if err := check_state_ref(cfg, ref):
                 problems.append(f"{where}: {err}")
         if (kd.face_on or kd.face_unknown) and not kd.state:
             problems.append(f"{where}: face_on/face_unknown need a 'state' to switch on")
     problems += _check_actions(cfg, "auto_switch.on_focus", cfg.auto_switch.on_focus)
     return problems
+
+
+def check_state_ref(cfg: Config, ref: str) -> str | None:
+    """A problem with a reference to state `ref` (plugin.state or plugin.state[argument]), or None.
+    Unknown plugins are reported elsewhere."""
+    from ..plugins import REGISTRY
+    from ..plugins.base import split_state
+
+    p, key = ref.split(".", 1)
+    parsed = split_state(key)
+    if parsed is None:
+        return f"state {ref!r} must look like plugin.state or plugin.state[argument]"
+    if p not in REGISTRY:
+        return None
+    name, arg = parsed
+    return REGISTRY[p].check_state(name, cfg.plugins.get(p) or {}, arg)
 
 
 def _check_actions(cfg: Config, where: str, actions) -> list[str]:

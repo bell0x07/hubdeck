@@ -32,6 +32,9 @@ defaults:
 #     client_secret: !secret discord_client_secret
 #   spotify:                         # Spotify's own volume: spotify.volume (needs Premium)
 #     client_id: !secret spotify_client_id
+#   ha:                              # Home Assistant: its address, and a long-lived access token
+#     url: http://homeassistant.local:8123
+#     token: !secret ha_token
 
 # RGB lighting for the Base, knobs and faders (uncomment what you have). Nothing is stored on the modules.
 # lighting:
@@ -100,6 +103,15 @@ pages:
       #   state: discord.holding
       #   face:    {icon: hand-stop, label: HOLD}
       #   face_on: {icon: microphone-off, label: HELD, bg: "#c81e28", fg: white}
+
+      # Home Assistant (needs the plugins.ha section above). A knob or the Dial dims the same
+      # light with turn: {target: ha.level, arg: light.desk}.
+      # 13:
+      #   action: {ha.toggle: light.desk}
+      #   state: ha.on[light.desk]
+      #   face:    {icon: bulb-off, label: Desk}
+      #   face_on: {icon: bulb, label: Desk, bg: "#f5b400", fg: black}
+      # 14: {face: {text: "{ha.state[sensor.outside_temperature]:.1f}°", label: Outside}}
 
       # Pictures and animated GIFs (file next to this config, or an http(s) URL):
       # 9: {face: {image: cat.gif, label: Meow}}

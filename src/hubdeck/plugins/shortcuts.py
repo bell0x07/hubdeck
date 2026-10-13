@@ -65,11 +65,13 @@ class ShortcutsPlugin(ThreadedPlugin):
         return problems
 
     @classmethod
-    def check_state(cls, name, config):
+    def check_state(cls, name, config, arg=None):
         outputs = config.get("outputs") or {}
         if name not in outputs:
             return (f"shortcuts has no output {name!r}: add it under plugins.shortcuts.outputs "
                     f"(defined: {', '.join(outputs) or 'none'})")
+        if arg is not None:
+            return f"shortcuts.{name} takes no [argument]"
         return None
 
     @classmethod

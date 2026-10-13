@@ -360,8 +360,10 @@ class Deck:
             self._engine.run_action(a, self._source(), start=True)
 
     def state(self, name: str, default: Any = None) -> Any:
-        """A state value, e.g. state("audio.volume"); `default` while it's unknown."""
-        value = self._engine.state.get(name)
+        """A state value, e.g. state("audio.volume"); `default` while it's unknown. A state the
+        config doesn't show, like ha.state[sensor.x], is fetched on the first read, which waits
+        up to 2 s for it."""
+        value = self._engine.read_state(name)
         return default if value is None else value
 
     @property

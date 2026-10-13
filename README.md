@@ -293,6 +293,7 @@ These share the same fields.
 - **After a turn:** `on_turn` runs actions after each turn of the Dial, a knob or a roller, once the `turn` target is adjusted or its `cw`/`ccw` actions have run. A fast spin can arrive as one turn of several clicks. To show a knob's value on the Dial while you turn it, see [Controlling hubdeck from Python](#controlling-hubdeck-from-python).
 - **State:** `state: plugin.state` uses `face_on` while the value is true and `face_unknown` while it's unknown, for example when Discord is closed. Fields you don't set in the overlay are taken from `face`.
   - `state: {plugin.state: value}` is on while the value matches instead: a text it contains, in any case, or a number or true/false it equals. `state: {audio.output: DAC5}` is on while DAC5 is the default output.
+  - Some states take an argument in brackets, such as `ha.on[light.desk]` or `{ha.state[sensor.outside]:.1f}`. Inside a one-line `{…}` mapping, quote it: `{state: "ha.on[light.desk]", …}`. Unquoted, YAML reads the `[` as the start of a list.
 - **Pages:** each page can have its own `dial`, `knobs`, `rollers` and `faders` sections. A page without one uses the start page's section.
 - **Going home by itself:** `home_after: {idle: 60, press: 15}` on a page takes it back to the start page once it's left alone.
   - Every use of the modules starts the count again: `press` seconds after pressing a key, the Dial or a knob, and `idle` seconds after turning, moving a fader or arriving on the page.
@@ -419,6 +420,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `spotify` | `volume_up`, `volume_down` (step in %, default 5), `set_volume` (0–100), `toggle_mute` / `mute` / `unmute` | `volume`, `muted`, `device` (where Spotify plays) | `volume` (Spotify's own slider, [setup](#spotify-setup)) |
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
+| `ha` (Home Assistant) | `toggle`, `turn_on`, `turn_off` (an entity or a list), `call` (`{service: light.turn_on, entity: ..., data: {...}}`), `toggle_mute` (media players) | `connected`, `on[entity]`, `state[entity]`, `attr[entity:attribute]` | `level` (arg: an entity) |
 
 - **Media keys:** `play_pause`, `next`, `prev`, `stop`, `vol_up`, `vol_down` and `mute`.
 - **What's playing (Windows):** the `media` states follow the app that the media keys control, the one the volume flyout shows. `media.playing` is true while it plays and false while it's paused. `media.app` is the app's Start menu name, such as `Spotify`, `Brave` or `Media Player`, and `media.title` and `media.artist` describe the track. All four are unknown while no app has media open. A play/pause key that shows which app it controls:
@@ -546,7 +548,7 @@ On `deck` itself:
 | `deck.auto_switch` | whether pages switch by app; set it to `True` or `False` like `page.auto_on`/`auto_off` |
 | `deck.focused` | the focused window as `(app, title)`, also `.app` and `.title`; `None` until hubdeck has seen one |
 | `deck.run(action, arg=None)` | run any action, written as in the config: `deck.run("discord.toggle_mute")`, `deck.run("keys", "ctrl+c")`, `deck.run({"audio.set_volume": 30})` or a list |
-| `deck.state(name, default=None)`, `deck.states` | read state values, e.g. `deck.state("audio.volume")` |
+| `deck.state(name, default=None)`, `deck.states` | read state values, e.g. `deck.state("audio.volume")`. A Home Assistant state the config doesn't show, like `deck.state("ha.state[sensor.outside]")`, is fetched on the first read, which waits up to 2 s for it |
 | `deck.set_var(name, value)` | set `vars.<name>`, like `{vars.set: ...}` or `hubdeck send set`: faces show it as `{vars.name}`, and `state: vars.name` switches on it |
 | `deck.set_brightness(percent, module="keys")` | screen backlight 0–100 for `keys` or `dial`, until the config's brightness changes |
 | `deck.reload()` | reload the config |
@@ -612,6 +614,56 @@ plugins:
 
 When hubdeck starts without a Spotify login, it opens Spotify's login page in your browser. The login is then kept in `spotify_token.json` in the hubdeck folder. If you skip the login, or it expires, using a Spotify control opens the page again.
 
+### Home Assistant setup
+
+hubdeck talks to Home Assistant over its WebSocket API. Home Assistant pushes every change, so keys and lights follow within moments.
+
+1. In Home Assistant, open your profile › **Security** › **Long-lived access tokens** › **Create token**, and name it `hubdeck`.
+2. Put the token in `secrets.yaml` as `ha_token: "..."`.
+3. Add the plugin, with Home Assistant's address as you open it in the browser:
+
+```yaml
+plugins:
+  ha:
+    url: http://homeassistant.local:8123   # https:// works too
+    token: !secret ha_token
+    # verify_ssl: false                     # only for a self-signed certificate
+
+pages:
+  house:
+    keys:
+      1:
+        action: {ha.toggle: light.desk}
+        state: ha.on[light.desk]
+        face:    {icon: bulb-off, label: Desk}
+        face_on: {icon: bulb, label: Desk, bg: "#f5b400", fg: black}
+      2: {action: {ha.turn_on: scene.movie_night}, face: {icon: movie, label: Movie}}
+      3: {face: {text: "{ha.state[sensor.outside_temperature]:.1f}°", label: Outside}}
+    dial:                                  # thermostat; press turns it on and off
+      turn: {target: ha.level, arg: climate.living_room}
+      action: {ha.toggle: climate.living_room}
+      face: {text: "{ha.attr[climate.living_room:temperature]:.1f}°", gauge: true}
+    knobs:
+      1: {turn: {target: ha.level, arg: light.desk}}
+```
+
+- **Entities** are written by their entity ID, as in Home Assistant's Settings › Entities.
+- **Actions:**
+  - `toggle`, `turn_on` and `turn_off` take one entity or a list, of any domain that switches, scenes and scripts included. Locks don't toggle: use `{ha.call: {service: lock.unlock, entity: lock.front}}`.
+  - `call` runs any service (Home Assistant calls them actions): `service`, then optionally `entity` (one or a list) and `data`, as in Developer tools › Actions.
+  - `toggle_mute` mutes or unmutes a media player.
+- **States:**
+  - `ha.on[entity]` is true while Home Assistant's dashboard shows the entity as active: on, open, playing, unlocked, home, heating and so on.
+  - `ha.state[entity]` is the state itself, as a number where it is one, so `{ha.state[sensor.x]:.1f}` works.
+  - `ha.attr[entity:attribute]` is one attribute, such as `ha.attr[media_player.tv:media_title]`.
+  - They're unknown (`face_unknown`) while the entity is unavailable, or while Home Assistant can't be reached; `ha.connected` tells which.
+  - Inside a one-line `{…}` mapping, quote them: `{state: "ha.on[light.desk]", …}`.
+- **`ha.level`** is an entity's level 0–100 for a Dial, knob, roller or fader: a light's brightness (0 turns it off, and turning up from off turns it on), a media player's volume (muted counts for `set_face(muted=…)`), a cover's position, a fan's speed, a `number` or `input_number` within its range, or a climate's target temperature within its range.
+  - A climate moves by one of its own steps (usually 0.5 °C) per click at the default `step: 2`; `step: 4` moves two. `{value}` is 0–100, so show the temperature with `{ha.attr[climate.x:temperature]}`.
+  - Turning shows the new level straight away; hubdeck sends it at most 10 times a second per entity.
+- **Only the entities the config uses** are subscribed to. `deck.state("ha.state[sensor.x]")` in Python and `hubdeck send get` fetch any other one on first use, which waits up to 2 s.
+- **When Home Assistant can't be reached,** hubdeck retries every 5 s, and actions pressed meanwhile are dropped, not saved for later. A refused token isn't retried until the config changes.
+
 ## Shortcuts, scripts and automation
 
 hubdeck works in both directions: controls can run your automations, and automations can drive hubdeck.
@@ -628,6 +680,7 @@ hubdeck send set focus Work            # set vars.focus
 hubdeck send set weather -             # set vars.weather to the text on stdin, as is
 hubdeck send image picture photo.jpg   # show a picture: image: "{vars.picture}" (- reads stdin)
 hubdeck send get discord.muted         # print a state (empty while unknown)
+hubdeck send get "ha.on[light.desk]"   # Home Assistant states are fetched on first use (up to 2 s)
 ```
 
 - **Values (`vars`):** `set` stores a value that keys and lighting use like any state: `{vars.focus}` in text or labels, `state: vars.dnd` with `face_on`, or a lighting `state`. Keys can change them too (`{vars.toggle: dnd}`). Starting values go under `plugins: {vars: {focus: none}}`, and a name that was never set is unknown.

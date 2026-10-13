@@ -13,8 +13,11 @@ from ..render.faces import parse_color
 KEY_COUNT = 15
 GESTURES = ("press", "down", "up", "long_press", "double_press")
 
+# a plugin's state name, optionally with an argument: muted, on[light.desk], attr[light.desk:brightness]
+STATE_KEY = r"[a-z_][a-z0-9_]*(?:\[[^\[\]{}]*\])?"
+STATE_RE = r"[a-z_][a-z0-9_]*\." + STATE_KEY
 # {plugin.state} or {plugin.state:format} inside face text / label
-TEMPLATE_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)(?::([^{}]*))?\}")
+TEMPLATE_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\.(" + STATE_KEY + r")(?::([^{}]*))?\}")
 # {value} or {value:format}: the current value of the control's turn target
 VALUE_RE = re.compile(r"\{value(?::([^{}]*))?\}")
 NAME_RE = r"[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*"
@@ -84,8 +87,9 @@ def _check_state(v: str | dict | None) -> str | dict | None:
         if isinstance(next(iter(v.values())), (dict, list, type(None))):
             raise ValueError(f"state {v!r}: the value to match must be a text, number or true/false")
     name = state_name(v) if v is not None else None
-    if name is not None and not re.fullmatch(NAME_RE, name):
-        raise ValueError(f"state {name!r} must look like plugin.state (e.g. discord.muted)")
+    if name is not None and not re.fullmatch(STATE_RE, name):
+        raise ValueError(f"state {name!r} must look like plugin.state or plugin.state[argument] "
+                         "(e.g. discord.muted, ha.on[light.desk])")
     return v
 
 

@@ -32,6 +32,9 @@ plugins:
     client_secret: !secret discord_client_secret
   spotify:                     # needs Spotify Premium and your own Spotify app, see README
     client_id: !secret spotify_client_id
+  ha:                          # Home Assistant: a long-lived access token, see README
+    url: http://homeassistant.local:8123
+    token: !secret ha_token
 
 # RGB lighting. Nothing is stored on the modules.
 lighting:
@@ -225,3 +228,33 @@ pages:
       turn: {target: audio.volume, step: 2, expo: 0.5}
       face: {image: "https://upload.wikimedia.org/wikipedia/commons/2/2c/Rotating_earth_%28large%29.gif",
              label: "{value}%", gauge: true}
+
+  house:                                   # Home Assistant
+    home_after: 60
+    keys:
+      1: {action: page.back, face: {icon: arrow-left, label: Back}}
+      2:                                   # a light, lit while it's on
+        action: {ha.toggle: light.desk}
+        state: ha.on[light.desk]
+        face:         {icon: bulb-off, label: Desk}
+        face_on:      {icon: bulb, label: Desk, bg: "#f5b400", fg: black}
+        face_unknown: {icon: plug-connected-x, label: NO HA, bg: "#c81e28", fg: white}
+      3: {action: {ha.turn_on: scene.movie_night}, face: {icon: movie, label: Movie}}
+      4:                                   # a sensor's state, and an attribute
+        face: {text: "{ha.state[sensor.outside_temperature]:.1f}°", label: "{ha.attr[weather.home:humidity]}%"}
+      5:                                   # red while the door is unlocked; unlocking needs ha.call
+        state: "ha.on[lock.front_door]"
+        face:    {icon: lock, label: Locked}
+        face_on: {icon: lock-open, label: OPEN, bg: "#c81e28", fg: white}
+      6:                                   # any service, with data
+        action: {ha.call: {service: notify.mobile_app_phone, data: {message: "Coffee's ready"}}}
+        face: {icon: coffee, label: Ping}
+    dial:                                  # thermostat: one of its steps per click; press = on/off
+      turn: {target: ha.level, arg: climate.living_room}
+      action: {ha.toggle: climate.living_room}
+      face: {icon: air-conditioning, text: "{ha.attr[climate.living_room:temperature]:.1f}°", gauge: true}
+    knobs:
+      1: {turn: {target: ha.level, arg: light.desk}}            # brightness; 0 turns it off
+      2:                                   # a speaker's volume; press mutes
+        turn: {target: ha.level, arg: media_player.living_room}
+        action: {ha.toggle_mute: media_player.living_room}
