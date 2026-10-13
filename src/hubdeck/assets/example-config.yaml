@@ -127,6 +127,7 @@ pages:
     #   3: {target: audio.app_volume, arg: spotify.exe}
 
   media:
+    # match: [spotify.exe]                # show this page while Spotify has focus (Windows, macOS)
     keys:
       1: {action: page.back, face: {icon: arrow-left, label: Back}}
       2: {action: {media: prev}, face: {icon: player-skip-back}}

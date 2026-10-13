@@ -14,6 +14,7 @@
   <button id="add-page" class="ghost" title="Add a page">+ New page</button>
   <div class="spacer"></div>
   <button id="btn-lighting">💡 Lighting</button>
+  <button id="btn-auto" title="Switch pages by the app you're using">⇄ Auto-switch</button>
   <button id="btn-settings">⚙ Device</button>
   <button id="btn-yaml" class="ghost" title="Edit the whole config file">Advanced</button>
   <span id="status" class="pill">loading…</span>
@@ -27,8 +28,10 @@
       <h1 id="page-title"></h1>
       <button id="page-start" class="small ghost">Make this the start page</button>
       <button id="page-rename" class="small ghost">Rename</button>
+      <button id="page-switch" class="small ghost" title="Show this page when an app has focus">Switch by app…</button>
       <button id="page-delete" class="small ghost danger">Delete page</button>
     </div>
+    <div id="focus-now" class="muted hidden"></div>
     <div id="base"></div>
     <div id="unplaced"></div>
     <p class="hint">👆 Click any key, knob, roller, fader or the dial to set it up. Drag a module by its title to

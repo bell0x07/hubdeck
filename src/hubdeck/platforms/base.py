@@ -11,7 +11,9 @@ import time: configs are validated on every OS.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 
 class Unsupported(OSError):
@@ -80,6 +82,24 @@ class Keyboard(ABC):
     def type_text(self, text: str): ...
 
 
+@dataclass(frozen=True)
+class FocusedWindow:
+    """The window with keyboard focus, as pages match it."""
+    app: str                         # what hubdeck calls the app: the process name (X2.EXE); macOS: Safari
+    title: str | None = None         # None: titles can't be read (macOS without Accessibility)
+    aliases: tuple[str, ...] = ()    # other names that match the app (macOS: bundle id, executable)
+
+
+class FocusReader(ABC):
+    """Which window has keyboard focus. Used on one thread of its own: read() may block for a
+    moment while the app answers (macOS asks the app for its window title)."""
+
+    @abstractmethod
+    def read(self) -> FocusedWindow | None:
+        """The focused window, or None when there's nothing to switch pages for: no window, the
+        system's own surfaces (taskbar, desktop, Alt+Tab, lock screen) or hubdeck itself."""
+
+
 class IpcConnection(ABC):
     """A local byte stream to another app (Discord's RPC pipe/socket)."""
 
@@ -132,6 +152,14 @@ class Platform(ABC):
 
     def keyboard(self) -> Keyboard:
         raise Unsupported(f"keystrokes are not supported on {self.name} yet")
+
+    def focus(self) -> FocusReader:
+        raise Unsupported(f"switching pages by app is not supported on {self.name} yet")
+
+    def run_with_event_loop(self, run: Callable[[], None], stop: Callable[[], None]):
+        """Run `run` until it returns, with the OS's event loop going where it needs one
+        (macOS: on the main thread, so the frontmost app stays current); `stop` ends it early."""
+        run()
 
     def run_shortcut(self, name: str, input: str | None = None, timeout: float = 60) -> str:
         """Run one of the user's automations (macOS Shortcuts) by name; returns its text output."""

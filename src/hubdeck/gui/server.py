@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 from PIL import Image, ImageDraw
 
+from .. import focus
 from ..config import ConfigError, ConfigSource, load_config
 from ..config.schema import ALIASES, GESTURES, LED_MODES, ControlDef, FaderDef, KeyDef
 from ..render import tabler
@@ -222,10 +223,14 @@ class GuiServer:
             modules = {k: (cfg.modules.rotate(k) if cfg else 0) for k in COUNTS}
             connected = self.connected()
             used = sorted(cfg.used_modules()) if cfg else []
+            flags = {name: {"match": [m.model_dump(exclude_none=True) for m in p.match], "sticky": p.sticky}
+                     for name, p in cfg.pages.items()} if cfg else {}
             return {
                 "layout": self.layout(cfg, connected, used),
                 "path": str(self.source.path),
                 "pages": pages,
+                "page_flags": flags,
+                **self.focus_state(),
                 "start_page": self.doc.start_page,
                 "current_page": self.engine.current_page if self.engine else None,
                 "connected": connected,
@@ -234,6 +239,32 @@ class GuiServer:
                 "error": error,
                 "live": self.engine is not None,
             }
+
+    def focus_state(self) -> dict:
+        """What the running hubdeck sees: the focused window, the page it matches, recent windows."""
+        eng = self.engine
+        if eng is None:
+            return {"focus": None, "recent_windows": [], "auto_switch": None}
+        window = eng.focus
+        return {
+            "focus": window and {"app": window.app, "title": window.title, "page": eng.focus_page},
+            "recent_windows": [{"app": w.app, "title": w.title} for w in eng.recent_windows],
+            "auto_switch": eng.auto_switch,
+        }
+
+    def api_page_settings(self, page: str) -> dict:
+        with self.lock:
+            self.doc.load()
+            return {"raw": to_plain(self.doc.get_page_settings(page))}
+
+    def api_set_page_settings(self, body: dict) -> dict:
+        with self.lock:
+            self.doc.load()
+            if body["page"] not in self.doc.page_names():
+                raise ValueError(f"no page named {body['page']!r}")
+            self.doc.set_page_settings(body["page"], body.get("raw") or {})
+            err = self.doc.save()
+        return {"ok": err is None, "error": err}
 
     def api_meta(self) -> dict:
         from ..plugins import REGISTRY
@@ -245,6 +276,7 @@ class GuiServer:
             "led_modes": list(LED_MODES),
             "counts": COUNTS,
             "platform": sys.platform,
+            "follows_focus": focus.supported(),
             "accent": "#%02x%02x%02x" % accent_color(),
         }
 
@@ -428,6 +460,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(a.api_item(q["page"], q["section"], q.get("num")))
             if url.path == "/api/global":
                 return self._json(a.api_global(q["name"]))
+            if url.path == "/api/page-settings":
+                return self._json(a.api_page_settings(q["page"]))
             if url.path == "/api/yaml":
                 return self._json(a.api_yaml())
             if url.path == "/api/audio":
@@ -459,6 +493,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(a.api_set_global(body))
             if url.path == "/api/page":
                 return self._json(a.api_page(body))
+            if url.path == "/api/page-settings":
+                return self._json(a.api_set_page_settings(body))
             if url.path == "/api/yaml":
                 return self._json(a.api_set_yaml(body))
             if url.path == "/api/to-yaml":      # unsaved form state -> YAML text for the YAML tab

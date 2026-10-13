@@ -14,7 +14,7 @@ import io
 import os
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 from pydantic import ValidationError
 
@@ -220,6 +220,12 @@ class Controls:
         return f"deck.{self._cls.kind} (1-{self._count})"
 
 
+class Focused(NamedTuple):
+    """The focused window: its app (X2.EXE; macOS: Safari) and title (None: can't be read)."""
+    app: str
+    title: str | None
+
+
 # -- deck ----------------------------------------------------------------------
 class Deck:
     def __init__(self, engine: Engine):
@@ -276,6 +282,24 @@ class Deck:
 
     def home(self):
         self._engine.home()
+
+    @property
+    def auto_switch(self) -> bool:
+        """Whether pages switch by the focused app (pages' `match`). Setting it lasts until
+        hubdeck restarts or the config's auto_switch.enabled changes; True switches right away."""
+        return self._engine.auto_switch
+
+    @auto_switch.setter
+    def auto_switch(self, on: bool):
+        if not isinstance(on, bool):
+            raise TypeError(f"auto_switch must be True or False, not {on!r}")
+        self._engine.set_auto_switch(on)
+
+    @property
+    def focused(self) -> Focused | None:
+        """The focused window as (app, title), or None until hubdeck has seen one."""
+        window = self._engine.focus
+        return None if window is None else Focused(window.app, window.title)
 
     # -- keys (shortcuts for deck.keys[n]) -------------------------------
     def set_face(self, key: int, page: str | None = None, *, replace: bool = False, **fields):

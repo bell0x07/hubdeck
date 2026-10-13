@@ -10,6 +10,9 @@ nav { display: flex; gap: 6px; flex-wrap: wrap; }
 nav button.active { background: var(--accent); color: #0b0b0e; border-color: var(--accent); font-weight: 600; }
 nav button .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-left: 8px; box-shadow: 0 0 6px var(--accent); }
 nav button.active .live { background: #0b0b0e; box-shadow: none; }
+nav button .flag { margin-left: 6px; font-size: 13px; opacity: .8; }
+#focus-now { margin: -6px 0 12px; }
+.windows .act input { flex: 1 1 150px; }
 .spacer { flex: 1; }
 button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer; font: inherit; }
 button:hover { border-color: var(--muted); }

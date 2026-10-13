@@ -1,4 +1,5 @@
-"""macOS: ~/Library/Application Support, `open`, CoreAudio, Quartz events, AppKit tray.
+"""macOS: ~/Library/Application Support, `open`, CoreAudio, Quartz events, AppKit tray, the
+frontmost app.
 
 pyobjc (pulled in by pystray on macOS) is only imported inside functions.
 """
@@ -164,6 +165,31 @@ class MacPlatform(PosixPlatform):
     def keyboard(self):
         from .keyboard import QuartzKeyboard
         return QuartzKeyboard()
+
+    def focus(self):
+        from .focus import MacFocus
+        return MacFocus()
+
+    def run_with_event_loop(self, run, stop):
+        """The engine on a thread, AppKit's event loop on the main thread: NSWorkspace only
+        updates the frontmost app while one runs. Ctrl+C ends the loop, then the engine."""
+        import threading
+
+        from PyObjCTools import AppHelper
+
+        def engine():
+            try:
+                run()
+            finally:
+                AppHelper.callAfter(AppHelper.stopEventLoop)   # it only stops from the main thread
+
+        thread = threading.Thread(target=engine, name="hubdeck-engine", daemon=True)
+        thread.start()
+        try:
+            AppHelper.runConsoleEventLoop(installInterrupt=True)
+        finally:
+            stop()
+            thread.join(timeout=5)
 
     def run_shortcut(self, name, input=None, timeout=60):
         with tempfile.TemporaryDirectory(prefix="hubdeck-") as tmp:
