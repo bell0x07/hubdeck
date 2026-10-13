@@ -48,8 +48,8 @@ class VarsPlugin(Plugin):
         return _check_values(config, "plugins.vars")
 
     @classmethod
-    def check_state(cls, name, config):
-        return check_name(name)
+    def check_state(cls, name, config, arg=None):
+        return check_name(name) or (f"vars.{name} takes no [argument]" if arg is not None else None)
 
     @classmethod
     def check_action(cls, action, arg):

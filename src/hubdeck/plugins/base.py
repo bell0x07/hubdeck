@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import sys
 import threading
 from typing import TYPE_CHECKING, Any, Callable, ClassVar
@@ -42,6 +43,20 @@ def muted_state(name: str, arg: Any) -> str:
     return f"muted:{name}:{'' if arg is None else arg}"
 
 
+STATE_ARG = re.compile(r"([a-z_][a-z0-9_]*)(?:\[([^\[\]{}]*)\])?")
+
+
+def state_key(name: str, arg: str | None = None) -> str:
+    """State key of a state with an argument, e.g. 'on[light.desk]'; without one, just the name."""
+    return name if arg is None else f"{name}[{arg}]"
+
+
+def split_state(key: str) -> tuple[str, str | None] | None:
+    """'on[light.desk]' -> ('on', 'light.desk'), 'muted' -> ('muted', None); None if malformed."""
+    m = STATE_ARG.fullmatch(key)
+    return (m[1], m[2]) if m else None
+
+
 def _expo(x: float, expo: float) -> float:
     return (1 - expo) * x + expo * x ** 3
 
@@ -65,6 +80,7 @@ class Plugin:
     name: ClassVar[str]
     actions: ClassVar[dict[str, str]] = {}   # action -> help text
     states: ClassVar[dict[str, str]] = {}    # state -> help text
+    state_args: ClassVar[dict[str, str]] = {}   # state that takes an [argument] -> what goes in it
     values: ClassVar[dict[str, str]] = {}    # adjustable value (turn/fader target) -> help text
     platforms: ClassVar[tuple[str, ...] | None] = None   # sys.platform values it works on; None = all
 
@@ -73,6 +89,7 @@ class Plugin:
         self.config = config
         self.log = ctx.log
         self.watched: set[tuple[str, Any]] = set()
+        self.watched_states: set[tuple[str, str | None]] = set()
 
     @classmethod
     def available(cls) -> bool:
@@ -91,11 +108,16 @@ class Plugin:
         return None
 
     @classmethod
-    def check_state(cls, name: str, config: dict) -> str | None:
-        """Return a problem with a reference to state `name`, or None. Plugins whose states
-        come from their settings (`config`, the plugins.<name> section) override this."""
+    def check_state(cls, name: str, config: dict, arg: str | None = None) -> str | None:
+        """Return a problem with a reference to state `name` (with `arg`, from name[arg]), or None.
+        Plugins whose states come from their settings (`config`, the plugins.<name> section)
+        override this; so do plugins that check the arguments."""
         if name not in cls.states:
             return f"{cls.name} has no state {name!r} (available: {', '.join(cls.states) or 'none'})"
+        if name in cls.state_args and arg is None:
+            return f"{cls.name}.{name} needs {cls.state_args[name]} in brackets: {cls.name}.{name}[...]"
+        if name not in cls.state_args and arg is not None:
+            return f"{cls.name}.{name} takes no [argument]"
         return None
 
     def start(self):
@@ -112,7 +134,13 @@ class Plugin:
     def invoke(self, action: str, arg: Any):
         raise NotImplementedError
 
-    # values: called on the engine thread, must return quickly ---------------
+    # states and values: called on the engine thread, must return quickly ---------------
+    def watch_states(self, states: set[tuple[str, str | None]]):
+        """The (state, argument) pairs the config shows, plus those asked for at runtime
+        (deck.state, hubdeck send get). Plugins that only fetch what's shown publish these,
+        under state_key(state, argument)."""
+        self.watched_states = set(states)
+
     def watch(self, targets: set[tuple[str, Any]]):
         """Values the config shows/uses; publish them with set_state(value_state(name, arg), 0-100)."""
         self.watched = set(targets)

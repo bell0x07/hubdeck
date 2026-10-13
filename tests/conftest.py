@@ -9,7 +9,8 @@ class RecorderPlugin(Plugin):
     """Records invoked actions; tests set its states through `emit`."""
     name = "rec"
     actions = {"a": "", "b": "", "start": "", "end": ""}
-    states = {"on": "", "value": ""}
+    states = {"on": "", "value": "", "item": ""}
+    state_args = {"item": "an item name"}             # rec.item[name]
     values = {"level": "", "app": ""}
     instances: list["RecorderPlugin"] = []
 

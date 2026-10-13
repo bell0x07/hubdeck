@@ -21,7 +21,7 @@ from .gestures import GestureTracker
 from .lighting import LightingController
 from .platforms import FocusedWindow, Unsupported, current
 from .plugins import REGISTRY, Plugin, PluginContext
-from .plugins.base import muted_state, value_state
+from .plugins.base import muted_state, split_state, value_state
 from .render.images import ImageStore, LoadedImage
 from . import paths
 from .render.faces import BLANK, RenderFace, accent_color, parse_color, render
@@ -415,6 +415,7 @@ class Engine:
             if name not in self.plugins:
                 self._start_plugin(name, settings)
         self._watch_targets()
+        self._watch_states()
         self._update_light_zones()
         self.lighting.forget()
         self.images.forget()
@@ -458,6 +459,18 @@ class Engine:
                 plugin.watch(per_plugin.get(name, set()))
             except Exception:
                 log.exception("plugin %s: watch failed", name)
+
+    def _watch_states(self):
+        """Tell each plugin which of its states the config shows, as (state, argument) pairs."""
+        per_plugin: dict[str, set] = {}
+        for p, key in self.cfg.state_refs():
+            if parsed := split_state(key):
+                per_plugin.setdefault(p, set()).add(parsed)
+        for name, plugin in self.plugins.items():
+            try:
+                plugin.watch_states(per_plugin.get(name, set()))
+            except Exception:
+                log.exception("plugin %s: watch_states failed", name)
 
     def _start_plugin(self, name: str, settings: dict):
         cls = REGISTRY[name]
