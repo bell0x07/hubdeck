@@ -35,6 +35,8 @@ plugins:
   ha:                          # Home Assistant: a long-lived access token, see README
     url: http://homeassistant.local:8123
     token: !secret ha_token
+  rambox:                      # Rambox 3's MCP server: its token, see README
+    token: !secret rambox_token
 
 # RGB lighting. Nothing is stored on the modules.
 lighting:
@@ -224,6 +226,10 @@ pages:
       3:                                   # the next page, in file order, round and round
         action: {python: "p = deck.pages; deck.goto(p[(p.index(deck.page) + 1) % len(p)])"}
         face: {icon: stack-2, label: Next}
+      4:                                   # Rambox 3: one of its apps; hold: any tool of its MCP server, here focus mode
+        action: {rambox.open: Slack}
+        on_long_press: {rambox.call: {tool: concentration, args: {feature: focus}}}
+        face: {icon: messages, label: Slack}
     dial:                                  # same volume control, with a GIF behind the gauge
       turn: {target: audio.volume, step: 2, expo: 0.5}
       face: {image: "https://upload.wikimedia.org/wikipedia/commons/2/2c/Rotating_earth_%28large%29.gif",

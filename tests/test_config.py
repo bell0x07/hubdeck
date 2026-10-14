@@ -137,6 +137,7 @@ def test_full_showcase_example_is_valid(monkeypatch):
     monkeypatch.setenv("HUBDECK_DISCORD_CLIENT_SECRET", "dummy")
     monkeypatch.setenv("HUBDECK_SPOTIFY_CLIENT_ID", "dummy")
     monkeypatch.setenv("HUBDECK_HA_TOKEN", "dummy")
+    monkeypatch.setenv("HUBDECK_RAMBOX_TOKEN", "dummy")
     path = Path(__file__).resolve().parents[1] / "examples" / "config.yaml"
     cfg = load_config(path, secrets=path.parent / "no-secrets.yaml")
     assert cfg.used_modules() == {"keys", "dial", "knobs", "rollers", "faders", "base"}

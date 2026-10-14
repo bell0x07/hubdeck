@@ -8,6 +8,7 @@ from .launch import LaunchPlugin
 from .media import MediaPlugin
 from .page import PagePlugin
 from .python import PythonPlugin
+from .rambox import RamboxPlugin
 from .shortcuts import ShortcutsPlugin
 from .spotify import SpotifyPlugin
 from .system import SystemPlugin
@@ -16,7 +17,7 @@ from .vars import VarsPlugin
 REGISTRY: dict[str, type[Plugin]] = {
     p.name: p for p in (PagePlugin, KeyboardPlugin, LaunchPlugin, PythonPlugin, DiscordPlugin, AudioPlugin,
                         SystemPlugin, MediaPlugin, VarsPlugin, ShortcutsPlugin, SpotifyPlugin,
-                        HomeAssistantPlugin, HwinfoPlugin)
+                        HomeAssistantPlugin, HwinfoPlugin, RamboxPlugin)
 }
 
 __all__ = ["REGISTRY", "Plugin", "PluginContext", "ThreadedPlugin"]

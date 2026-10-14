@@ -458,6 +458,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
 | `hwinfo` (Windows) | none | `value[label]`: a reading [HWiNFO](#hwinfo-setup) reports, e.g. `hwinfo.value[CPU (Tctl/Tdie)]` | none |
 | `ha` (Home Assistant) | `toggle`, `turn_on`, `turn_off` (an entity or a list), `call` (`{service: light.turn_on, entity: ..., data: {...}}`), `toggle_mute` (media players) | `connected`, `on[entity]`, `state[entity]`, `attr[entity:attribute]`, `today[entity]`, `month[entity]` | `level` (arg: an entity) |
+| `rambox` | `open` (one of [Rambox](#rambox-setup)'s apps, by name or id), `call` (any tool of its MCP server) | none | none |
 
 - **Media keys:** `play_pause`, `next`, `prev`, `stop`, `vol_up`, `vol_down` and `mute`.
 - **The computer:** `system.cpu`, `ram`, `vram` (GPU memory) and `disk` (the system drive) are in %, `gpu_temp` in °C, `gpu_power` in W, and `net_down` and `net_up` in Mbit/s over all adapters. `system.uptime` is the time since the computer started, `{system.uptime:%H:%M}`. The GPU values come from the first NVIDIA GPU, through its driver; without one they stay unknown.
@@ -719,6 +720,26 @@ keys:
 
 - A reading is unknown while HWiNFO doesn't run or doesn't report it. The log lists the labels it reports.
 - If two readings share a label, the first one in the Gadget list counts.
+
+### Rambox setup
+
+Rambox 3 has an MCP server: turn it on in Rambox, and put its token in `secrets.yaml` as `rambox_token: "..."`. Then a key can open any of Rambox's apps:
+
+```yaml
+plugins:
+  rambox:
+    token: !secret rambox_token
+    # port: 7822                       # the default
+
+keys:
+  5: {action: {rambox.open: Rocket Chat}, face: {icon: messages, label: Chat}}
+  6: {action: {rambox.call: {tool: concentration, args: {feature: focus}}}, face: {icon: bell-off, label: Focus}}
+```
+
+- **`rambox.open`** brings Rambox up on that app, restored if it's minimised and shown if it's closed to the tray. The app is its name in Rambox, in any case, or its id. Of several apps with that name, only the enabled ones count; if that still leaves more than one, the log lists their ids to use instead.
+- **`rambox.call`** calls any tool of Rambox's MCP server, with `args` as the tool takes them: `set_theme` (`{theme: dark}`), `concentration` (focus mode, pomodoro, ambient sounds), `open_section`, `window_state` and more. The log shows each tool's reply, and Rambox lists its tools to any MCP client.
+- Rambox doesn't share unread counts over MCP, so the plugin has no states.
+- When Rambox isn't running, or refuses the token, the log says so and the press does nothing.
 
 ## Shortcuts, scripts and automation
 
