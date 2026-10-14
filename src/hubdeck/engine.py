@@ -7,7 +7,7 @@ import queue
 import re
 import threading
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from .config import Config, ConfigError, ConfigSource, KeyDef
@@ -54,6 +54,11 @@ def format_value(value: Any, fmt: str | None) -> str:
         return "–"
     if isinstance(value, (datetime, date)):
         return value.strftime(fmt or "%H:%M")
+    if isinstance(value, timedelta):            # a duration: %H counts all its hours, or those past %d days
+        s = int(value.total_seconds())
+        days = "%d" in (fmt := fmt or "%H:%M")
+        return (fmt.replace("%d", str(s // 86400)).replace("%H", f"{s % 86400 // 3600 if days else s // 3600:02d}")
+                .replace("%M", f"{s // 60 % 60:02d}").replace("%S", f"{s % 60:02d}"))
     if isinstance(value, str) and fmt and (m := LINE_FMT.fullmatch(fmt.strip())):
         lines = value.splitlines()    # {shortcuts.weather:line2}: one line of multi-line text
         n = int(m.group(1))

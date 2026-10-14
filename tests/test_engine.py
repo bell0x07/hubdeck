@@ -225,8 +225,11 @@ def test_python_actions_run_concurrently(write, caplog):
 
 
 def test_format_value():
-    from datetime import datetime
+    from datetime import datetime, timedelta
     assert format_value(datetime(2026, 1, 2, 3, 4), "%H:%M") == "03:04"
+    assert format_value(timedelta(hours=3, minutes=42, seconds=9), None) == "03:42"
+    assert format_value(timedelta(days=2, hours=5, minutes=1), "%H:%M") == "53:01"
+    assert format_value(timedelta(days=2, hours=5, minutes=1, seconds=7), "%dd %H:%M:%S") == "2d 05:01:07"
     assert format_value(12.345, ".0f") == "12"
     assert format_value(None, None) == "–"
     assert format_value(True, None) == "on"

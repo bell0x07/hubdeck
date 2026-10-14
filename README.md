@@ -375,7 +375,7 @@ pages:
 
 - **Fields:** `icon` (a Tabler name; `filled: true` uses the filled style), `label`, `text`, `bg`, `fg` (icon colour), `label_color` and `font_size`.
 - **Colours** are `#rrggbb`, a name like `red`, or `accent`: your system accent colour (macOS: System Settings › Appearance; Windows: Settings › Personalization › Colors), followed within about 2 seconds of a change, and hubdeck green elsewhere. Icons default to `accent`; for example `lighting: {base: {color: accent}}` lights the Base in it.
-- **Live text:** `text` and `label` can include `{plugin.state}` or `{plugin.state:format}`, for example `{system.time:%H:%M}` or `{system.cpu:.0f}%`. For multi-line text, `:line1`, `:line2`… picks one line.
+- **Live text:** `text` and `label` can include `{plugin.state}` or `{plugin.state:format}`, for example `{system.time:%H:%M}` or `{system.cpu:.0f}%`. For multi-line text, `:line1`, `:line2`… picks one line. Durations, such as `{system.uptime}`, take `%H:%M` (all the hours), `%S` for seconds and `%d` for days (`%H` then counts the hours past them).
 - **Control value:** on a control with a turn target, `{value}` shows the target's current value, and `gauge: true` draws a ring around the Dial.
 - **Pictures:** `image: file.png`, `.jpg` or **animated `.gif`**, or a picture sent from outside, `image: "{vars.picture}"` (see [`hubdeck send`](#driving-hubdeck-hubdeck-send)).
   - A relative path is resolved next to the config.
@@ -435,15 +435,16 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `launch` | `open` (file, folder, app or URL; on macOS also an app name), `focus` ([an app's window, or open it](#switching-to-an-app)), `run` (shell command) | none | none |
 | `python` | `exec` (`{python: code}`) | none | none |
 | `audio` | `toggle_mute` / `mute` / `unmute` (speakers, microphone, or one app: `{app: spotify.exe}`, `{app: focused}`), `volume_up`, `volume_down`, `set_volume`, `set_output`, `set_input` | `speaker_muted`, `mic_muted`, `volume`, `mic_volume`, `output`, `input` | `volume`, `mic_volume`, `app_volume` (arg: process name, e.g. `spotify.exe`, or `focused`; on macOS an app with an AppleScript volume, e.g. `Spotify`) |
-| `system` | none | `time`, `cpu`, `ram` | none |
+| `system` | none | `time`, `cpu`, `ram`, `gpu`, `vram`, `gpu_temp`, `gpu_power`, `net_down`, `net_up`, `disk`, `uptime` (see below) | none |
 | `media` (Windows) | none (the media keys are `{media: play_pause}` etc., from `keyboard`) | `playing`, `app`, `title`, `artist` (see below) | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
 | `spotify` | `volume_up`, `volume_down` (step in %, default 5), `set_volume` (0–100), `toggle_mute` / `mute` / `unmute` | `volume`, `muted`, `device` (where Spotify plays) | `volume` (Spotify's own slider, [setup](#spotify-setup)) |
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
-| `ha` (Home Assistant) | `toggle`, `turn_on`, `turn_off` (an entity or a list), `call` (`{service: light.turn_on, entity: ..., data: {...}}`), `toggle_mute` (media players) | `connected`, `on[entity]`, `state[entity]`, `attr[entity:attribute]` | `level` (arg: an entity) |
+| `ha` (Home Assistant) | `toggle`, `turn_on`, `turn_off` (an entity or a list), `call` (`{service: light.turn_on, entity: ..., data: {...}}`), `toggle_mute` (media players) | `connected`, `on[entity]`, `state[entity]`, `attr[entity:attribute]`, `today[entity]`, `month[entity]`, `today_above[entity:threshold]` | `level` (arg: an entity) |
 
 - **Media keys:** `play_pause`, `next`, `prev`, `stop`, `vol_up`, `vol_down` and `mute`.
+- **The computer:** `system.cpu`, `ram`, `vram` (GPU memory) and `disk` (the system drive) are in %, `gpu_temp` in °C, `gpu_power` in W, and `net_down` and `net_up` in Mbit/s over all adapters. `system.uptime` is the time since the computer started, `{system.uptime:%H:%M}`. The GPU values come from the first NVIDIA GPU, through its driver; without one they stay unknown.
 - **What's playing (Windows):** the `media` states follow the app that the media keys control, the one the volume flyout shows. `media.playing` is true while it plays and false while it's paused. `media.app` is the app's Start menu name, such as `Spotify`, `Brave` or `Media Player`, and `media.title` and `media.artist` describe the track. All four are unknown while no app has media open. A play/pause key that shows which app it controls:
 
   ```yaml
@@ -677,6 +678,8 @@ pages:
   - `ha.on[entity]` is true while Home Assistant's dashboard shows the entity as active: on, open, playing, unlocked, home, heating and so on.
   - `ha.state[entity]` is the state itself, as a number where it is one, so `{ha.state[sensor.x]:.1f}` works.
   - `ha.attr[entity:attribute]` is one attribute, such as `ha.attr[media_player.tv:media_title]`.
+  - `ha.today[entity]` and `ha.month[entity]` are how much a counter, such as an energy meter's kWh, went up since midnight and since the 1st of the month: its state now, minus its state then. The start comes from Home Assistant's long-term statistics, so the entity needs a `state_class`, as energy sensors have.
+  - `ha.today_above[entity:threshold]` is how long today the entity's state was above the threshold, as a duration: `{ha.today_above[sensor.pc_power:100]:%H:%M}` shows how long a PC drew more than 100 W. It starts from today's history in Home Assistant, then follows the entity live.
   - They're unknown (`face_unknown`) while the entity is unavailable, or while Home Assistant can't be reached; `ha.connected` tells which.
   - Inside a one-line `{…}` mapping, quote them: `{state: "ha.on[light.desk]", …}`.
 - **`ha.level`** is an entity's level 0–100 for a Dial, knob, roller or fader: a light's brightness (0 turns it off, and turning up from off turns it on), a media player's volume (muted counts for `set_face(muted=…)`), a cover's position, a fan's speed, a `number` or `input_number` within its range, or a climate's target temperature within its range.
