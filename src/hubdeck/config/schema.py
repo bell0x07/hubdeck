@@ -139,9 +139,16 @@ class Face(Style):
     label: str | None = None
     text: str | None = None
     font_size: int | None = Field(default=None, ge=4, le=72)
-    gauge: bool = False   # ring showing the control's {value} (0-100); for the dial
+    gauge: bool | str = False   # ring (for the dial) showing 0-100: true = the control's {value}, or a plugin.state
     image: str | None = None                          # file (relative to the config folder) or http(s) URL
     image_fit: Literal["cover", "contain"] = "cover"  # cover: fill and crop; contain: fit inside
+
+    @field_validator("gauge")
+    @classmethod
+    def _gauge_state(cls, v):
+        if isinstance(v, str) and not re.fullmatch(STATE_RE, v):
+            raise ValueError(f"gauge {v!r}: true for the control's value, or a state like system.cpu")
+        return v
 
     @model_validator(mode="after")
     def _known_icon(self):
@@ -674,6 +681,8 @@ class Config(_Model):
                 for s in (f.text, f.label, f.image):
                     if s:
                         refs.update((p, n) for p, n, _ in TEMPLATE_RE.findall(s))
+                if isinstance(f.gauge, str):
+                    refs.add(tuple(f.gauge.split(".", 1)))
         for _, _, zone in self.lighting.zones():
             if zone.state:
                 refs.add(tuple(state_name(zone.state).split(".", 1)))

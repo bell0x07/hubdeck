@@ -376,7 +376,7 @@ pages:
 - **Fields:** `icon` (a Tabler name; `filled: true` uses the filled style), `label`, `text`, `bg`, `fg` (icon colour), `label_color` and `font_size`.
 - **Colours** are `#rrggbb`, a name like `red`, or `accent`: your system accent colour (macOS: System Settings › Appearance; Windows: Settings › Personalization › Colors), followed within about 2 seconds of a change, and hubdeck green elsewhere. Icons default to `accent`; for example `lighting: {base: {color: accent}}` lights the Base in it.
 - **Live text:** `text` and `label` can include `{plugin.state}` or `{plugin.state:format}`, for example `{system.time:%H:%M}` or `{system.cpu:.0f}%`. For multi-line text, `:line1`, `:line2`… picks one line. Durations, such as `{system.uptime}`, take `%H:%M` (all the hours), `%S` for seconds and `%d` for days (`%H` then counts the hours past them).
-- **Control value:** on a control with a turn target, `{value}` shows the target's current value, and `gauge: true` draws a ring around the Dial.
+- **Control value:** on a control with a turn target, `{value}` shows the target's current value, and `gauge: true` draws a ring around the Dial. `gauge: system.cpu` makes the ring follow a state instead (0–100), with or without a turn target.
 - **Pictures:** `image: file.png`, `.jpg` or **animated `.gif`**, or a picture sent from outside, `image: "{vars.picture}"` (see [`hubdeck send`](#driving-hubdeck-hubdeck-send)).
   - A relative path is resolved next to the config.
   - An `http(s)` URL is downloaded in the background (10 MB limit) and cached.

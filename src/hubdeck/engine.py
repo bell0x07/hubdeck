@@ -970,6 +970,8 @@ class Engine:
         if value is _UNSET:
             value = self.target_value(kd)
         gauge = merged.get("gauge", False)
+        level = self.state.get(gauge) if isinstance(gauge, str) else value   # gauge: plugin.state follows it
+        known = isinstance(level, (int, float))
         image, frame = merged.get("image"), 0
         if image and "{" in image:              # e.g. {vars.picture}: a picture sent with `hubdeck send image`
             image = self._template(image, value)
@@ -991,8 +993,8 @@ class Engine:
             label=self._template(merged.get("label"), value),
             text=self._template(merged.get("text"), value),
             font_size=merged.get("font_size"),
-            gauge=float(value) if gauge and value is not None else None,
-            gauge_known=not gauge or value is not None,
+            gauge=float(level) if gauge and known else None,
+            gauge_known=not gauge or known,
             image=image,
             image_fit=merged.get("image_fit", "cover"),
             frame=frame,

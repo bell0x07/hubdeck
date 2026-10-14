@@ -110,7 +110,7 @@ def check_references(cfg: Config) -> list[str]:
     for where, kd in cfg.iter_defs():
         has_target = isinstance(kd, ControlDef) and kd.turn is not None and kd.turn.target is not None
         for f in kd.faces():
-            if not has_target and (f.gauge or any(VALUE_RE.search(s or "") for s in (f.text, f.label))):
+            if not has_target and (f.gauge is True or any(VALUE_RE.search(s or "") for s in (f.text, f.label))):
                 problems.append(f"{where}: 'gauge' and {{value}} need a turn target to show")
                 break
         problems += _check_actions(cfg, where, kd.all_actions())
@@ -118,6 +118,8 @@ def check_references(cfg: Config) -> list[str]:
         for f in kd.faces():
             for s in (f.text, f.label, f.image):
                 refs += [f"{p}.{n}" for p, n, _ in TEMPLATE_RE.findall(s or "")]
+            if isinstance(f.gauge, str):
+                refs.append(f.gauge)
         for ref in refs:
             if err := check_state_ref(cfg, ref):
                 problems.append(f"{where}: {err}")

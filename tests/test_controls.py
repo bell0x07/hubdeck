@@ -117,6 +117,17 @@ def test_unknown_value_shows_empty_gauge(write):
     assert face.gauge is None and face.gauge_known is False and face.label == "–%"
 
 
+def test_gauge_can_follow_a_state(write, recorder):
+    eng, _, _ = make(write, """
+        rollers: {1: {turn: rec.level}}
+        dial: {face: {text: "{rec.value}%", gauge: rec.value}}
+    """)
+    assert eng.face_for(eng.def_for("dial", 0)).gauge_known is False
+    rec(recorder).emit("value", 37.5); eng.step()
+    face = eng.face_for(eng.def_for("dial", 0))
+    assert face.gauge == 37.5 and face.text == "37.5%"
+
+
 def test_knobs_turn_invert_and_press(write, recorder):
     eng, devs, _ = make(write)
     # knob numbers follow reading order: 1 = top (module index 2), 2 = bottom-left (index 0)
@@ -233,6 +244,8 @@ def test_unused_modules_are_not_opened(write):
     ("dial: {turn: rec.nope}", "no value 'nope'"),
     ("dial: {turn: rec.app}", "rec.app needs arg"),
     ("dial: {face: {gauge: true}}", "need a turn target"),
+    ("dial: {face: {gauge: cpu}}", "or a state like system.cpu"),
+    ("dial: {face: {gauge: rec.nope}}", "rec has no state 'nope'"),
     ("dial: {face: {label: '{value}'}}", "need a turn target"),
     ("rollers: {1: {turn: rec.level, action: rec.a}}", "can't be pressed"),
     ("knobs: {4: {turn: rec.level}}", "knob numbers must be 1-3"),
