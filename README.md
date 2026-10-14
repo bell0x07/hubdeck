@@ -377,6 +377,21 @@ pages:
 - **Colours** are `#rrggbb`, a name like `red`, or `accent`: your system accent colour (macOS: System Settings › Appearance; Windows: Settings › Personalization › Colors), followed within about 2 seconds of a change, and hubdeck green elsewhere. Icons default to `accent`; for example `lighting: {base: {color: accent}}` lights the Base in it.
 - **Live text:** `text` and `label` can include `{plugin.state}` or `{plugin.state:format}`, for example `{system.time:%H:%M}` or `{system.cpu:.0f}%`. For multi-line text, `:line1`, `:line2`… picks one line. Durations, such as `{system.uptime}`, take `%H:%M` (all the hours), `%S` for seconds and `%d` for days (`%H` then counts the hours past them).
 - **Control value:** on a control with a turn target, `{value}` shows the target's current value, and `gauge: true` draws a ring around the Dial. `gauge: system.cpu` makes the ring follow a state instead (0–100), with or without a turn target.
+- **Colour by value:** `fill` fills the background from the bottom as a number rises, and `text_color` colours the text (the label keeps `label_color`). Both take `state`, the number to follow, and optionally:
+  - `range: [empty, full]`, the values at empty and at full (default `[0, 100]`)
+  - `color`: one colour, or a list for a gradient over the range. A fill runs through the gradient from bottom to top, so its top colour only shows when full; text takes the colour at the value.
+  - `above: {70: "#f5b400", 85: red}`: from each value up, that colour instead; the highest one reached wins.
+
+  ```yaml
+  10:
+    face:
+      text: "{system.gpu_temp:.0f}°"
+      label: GPU
+      fill: {state: system.gpu_temp, range: [30, 90], color: ["#1f6b3a", "#8a6a00", "#8b1a1a"]}
+      text_color: {state: system.gpu_temp, color: white, above: {80: "#f5b400", 88: "#ff5050"}}
+  ```
+
+  `text_color` can also be a plain colour. While the number is unknown, there's no fill and the text is in `label_color`.
 - **Pictures:** `image: file.png`, `.jpg` or **animated `.gif`**, or a picture sent from outside, `image: "{vars.picture}"` (see [`hubdeck send`](#driving-hubdeck-hubdeck-send)).
   - A relative path is resolved next to the config.
   - An `http(s)` URL is downloaded in the background (10 MB limit) and cached.

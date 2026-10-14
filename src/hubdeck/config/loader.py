@@ -118,8 +118,7 @@ def check_references(cfg: Config) -> list[str]:
         for f in kd.faces():
             for s in (f.text, f.label, f.image):
                 refs += [f"{p}.{n}" for p, n, _ in TEMPLATE_RE.findall(s or "")]
-            if isinstance(f.gauge, str):
-                refs.append(f.gauge)
+            refs += f.states()
         for ref in refs:
             if err := check_state_ref(cfg, ref):
                 problems.append(f"{where}: {err}")

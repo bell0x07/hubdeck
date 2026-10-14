@@ -4,7 +4,7 @@ from PIL import Image
 from hubdeck.config import ConfigError, ConfigSource, load_config
 from hubdeck.device.fake import FakeControls, FakeKeyModule
 from hubdeck.engine import Engine
-from hubdeck.render.faces import RenderFace, render
+from hubdeck.render.faces import RenderFace, gradient_at, render
 from hubdeck.render.images import ImageStore, is_url, load_image
 
 
@@ -80,3 +80,20 @@ def test_engine_plays_gif_frames(write, tmp_path):
     assert len(keys.writes) == writes                                        # same frame: nothing sent
     clock.t = 0.31; eng.step()
     assert keys.images[0] == first_key                                       # looped
+
+
+def test_gradient_at_blends_evenly():
+    colors = ((0, 0, 0), (100, 200, 0), (200, 0, 0))
+    assert [gradient_at(colors, x) for x in (0, 0.25, 0.5, 1, 2)] == [(0, 0, 0), (50, 100, 0), (100, 200, 0),
+                                                                     (200, 0, 0), (200, 0, 0)]
+    assert gradient_at(((9, 9, 9),), 0.7) == (9, 9, 9)
+
+
+def test_fill_rises_from_the_bottom():
+    face = RenderFace(bg=(0, 0, 0), fg=(0, 0, 0), label_color=(0, 0, 0), fill=0.5,
+                      fill_colors=((0, 255, 0), (255, 0, 0)))
+    img = render(face)
+    assert img.getpixel((36, 10)) == (0, 0, 0)                       # above the fill: background
+    bottom, middle = img.getpixel((36, 70)), img.getpixel((36, 38))
+    assert bottom[1] > 240 and bottom[0] < 15                        # the gradient's bottom colour
+    assert 100 < middle[0] < 155 and 100 < middle[1] < 155           # halfway through it

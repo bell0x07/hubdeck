@@ -8,7 +8,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..render import tabler
-from ..render.faces import parse_color
+from ..render.faces import Color, gradient_at, parse_color
 
 KEY_COUNT = 15
 GESTURES = ("press", "down", "up", "long_press", "double_press")
@@ -122,6 +122,59 @@ def _check_color(v: str | None) -> str | None:
     return v
 
 
+class Scale(_Model):
+    """A number shown in colour, for `fill` and `text_color`: `color` is one colour, or a gradient
+    over `range` (a fill runs through it bottom to top; text takes the colour at the value), and
+    `above` switches to a colour from a value up."""
+    state: str                                   # plugin.state holding a number, e.g. system.gpu_temp
+    range: tuple[float, float] = (0, 100)        # the values at empty and at full
+    color: str | list[str] = "accent"
+    above: dict[float, str] = {}                 # {85: red}: red from 85 up; the highest reached wins
+
+    @field_validator("state")
+    @classmethod
+    def _state(cls, v):
+        if not re.fullmatch(STATE_RE, v):
+            raise ValueError(f"state {v!r} must look like plugin.state, e.g. system.cpu")
+        return v
+
+    @field_validator("color")
+    @classmethod
+    def _colors(cls, v):
+        if isinstance(v, list) and not v:
+            raise ValueError("color needs a colour, or a list of them for a gradient")
+        for c in [v] if isinstance(v, str) else v:
+            _check_color(c)
+        return v
+
+    @field_validator("above")
+    @classmethod
+    def _thresholds(cls, v):
+        for c in v.values():
+            _check_color(c)
+        return v
+
+    @model_validator(mode="after")
+    def _span(self):
+        if self.range[0] == self.range[1]:
+            raise ValueError("range needs two different values: empty and full, e.g. [30, 90]")
+        return self
+
+    def fraction(self, value: float) -> float:
+        """How full `value` is, 0-1, within `range`."""
+        lo, hi = self.range
+        return max(0.0, min(1.0, (value - lo) / (hi - lo)))
+
+    def colors(self, value: float) -> tuple[Color, ...]:
+        """The threshold colour `value` reached, else `color` (every colour of a gradient)."""
+        reached = [c for t, c in sorted(self.above.items()) if value >= t]
+        names = reached[-1:] or ([self.color] if isinstance(self.color, str) else self.color)
+        return tuple(parse_color(c) for c in names)
+
+    def color_at(self, value: float) -> Color:
+        return gradient_at(self.colors(value), self.fraction(value))
+
+
 class Style(_Model):
     bg: str | None = None
     fg: str | None = None
@@ -140,8 +193,20 @@ class Face(Style):
     text: str | None = None
     font_size: int | None = Field(default=None, ge=4, le=72)
     gauge: bool | str = False   # ring (for the dial) showing 0-100: true = the control's {value}, or a plugin.state
+    text_color: str | Scale | None = None             # the text's colour (default: label_color), or one that follows a number
+    fill: Scale | None = None                         # the background fills up from the bottom with a number
     image: str | None = None                          # file (relative to the config folder) or http(s) URL
     image_fit: Literal["cover", "contain"] = "cover"  # cover: fill and crop; contain: fit inside
+
+    @field_validator("text_color")
+    @classmethod
+    def _text_color(cls, v):
+        return _check_color(v) if isinstance(v, str) else v
+
+    def states(self) -> list[str]:
+        """The states its gauge, fill and text colour follow."""
+        out = [self.gauge] if isinstance(self.gauge, str) else []
+        return out + [s.state for s in (self.fill, self.text_color) if isinstance(s, Scale)]
 
     @field_validator("gauge")
     @classmethod
@@ -681,8 +746,7 @@ class Config(_Model):
                 for s in (f.text, f.label, f.image):
                     if s:
                         refs.update((p, n) for p, n, _ in TEMPLATE_RE.findall(s))
-                if isinstance(f.gauge, str):
-                    refs.add(tuple(f.gauge.split(".", 1)))
+                refs.update(tuple(s.split(".", 1)) for s in f.states())
         for _, _, zone in self.lighting.zones():
             if zone.state:
                 refs.add(tuple(state_name(zone.state).split(".", 1)))

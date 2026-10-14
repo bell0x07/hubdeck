@@ -128,6 +128,29 @@ def test_gauge_can_follow_a_state(write, recorder):
     assert face.gauge == 37.5 and face.text == "37.5%"
 
 
+def test_fill_and_text_color_follow_a_number(write, recorder):
+    eng, _, _ = make(write, """
+        keys:
+          1:
+            face:
+              text: "{rec.value}°"
+              fill: {state: rec.value, range: [30, 90], color: ["#00ff00", "#ff0000"]}
+              text_color: {state: rec.value, color: white, above: {70: "#ffaa00", 85: red}}
+          2: {face: {text: x, text_color: "#123456", fill: {state: rec.value, above: {50: blue}}}}
+    """)
+    face = eng.face_for(eng.def_for("keys", 0))
+    assert face.fill is None and face.text_color is None            # no value yet: no fill, label colour
+    for value, fill, text in ((60, 0.5, (255, 255, 255)), (75, 0.75, (255, 170, 0)), (99, 1.0, (255, 0, 0)),
+                              (10, 0.0, (255, 255, 255))):
+        rec(recorder).emit("value", value); eng.step()
+        face = eng.face_for(eng.def_for("keys", 0))
+        assert (face.fill, face.fill_colors, face.text_color) == (fill, ((0, 255, 0), (255, 0, 0)), text)
+    face = eng.face_for(eng.def_for("keys", 1))
+    assert face.text_color == (0x12, 0x34, 0x56) and face.fill == 0.1 and face.fill_colors[0] != (0, 0, 255)
+    rec(recorder).emit("value", 50); eng.step()
+    assert eng.face_for(eng.def_for("keys", 1)).fill_colors == ((0, 0, 255),)
+
+
 def test_knobs_turn_invert_and_press(write, recorder):
     eng, devs, _ = make(write)
     # knob numbers follow reading order: 1 = top (module index 2), 2 = bottom-left (index 0)
@@ -246,6 +269,11 @@ def test_unused_modules_are_not_opened(write):
     ("dial: {face: {gauge: true}}", "need a turn target"),
     ("dial: {face: {gauge: cpu}}", "or a state like system.cpu"),
     ("dial: {face: {gauge: rec.nope}}", "rec has no state 'nope'"),
+    ("keys: {1: {face: {fill: {state: rec.nope}}}}", "rec has no state 'nope'"),
+    ("keys: {1: {face: {fill: {state: rec.value, range: [5, 5]}}}}", "two different values"),
+    ("keys: {1: {face: {text_color: {state: rec.value, color: [bleu]}}}}", "unknown colour 'bleu'"),
+    ("keys: {1: {face: {text_color: {state: rec.value, above: {80: nope}}}}}", "unknown colour 'nope'"),
+    ("keys: {1: {face: {text_color: pink-ish}}}", "unknown colour"),
     ("dial: {face: {label: '{value}'}}", "need a turn target"),
     ("rollers: {1: {turn: rec.level, action: rec.a}}", "can't be pressed"),
     ("knobs: {4: {turn: rec.level}}", "knob numbers must be 1-3"),

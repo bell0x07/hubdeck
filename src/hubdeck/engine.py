@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from .config import Config, ConfigError, ConfigSource, KeyDef
-from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef, FaderDef, LightZone, state_on
+from .config.schema import TEMPLATE_RE, VALUE_RE, Action, ControlDef, FaderDef, LightZone, Scale, state_on
 from .deck import Deck
 from .device import DeviceError
 from .device.manager import RETRY_SECONDS, DeviceManager, present_kinds
@@ -877,6 +877,15 @@ class Engine:
                     self._release_faders(name, value)
 
     # -- faces -------------------------------------------------------------
+    def _scale(self, field: Any) -> tuple[Any, float | None]:
+        """A face's `fill` or `text_color` (a colour name passes through), with the number its
+        Scale follows now; None while that's unknown or not a number."""
+        if not isinstance(field, (dict, Scale)):
+            return field, None
+        scale = field if isinstance(field, Scale) else Scale.model_validate(field)
+        value = self.state.get(scale.state)
+        return scale, float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
     def _template(self, s: str | None, value: Any = None) -> str | None:
         if s is None:
             return None
@@ -972,6 +981,8 @@ class Engine:
         gauge = merged.get("gauge", False)
         level = self.state.get(gauge) if isinstance(gauge, str) else value   # gauge: plugin.state follows it
         known = isinstance(level, (int, float))
+        fill, fill_value = self._scale(merged.get("fill"))
+        text_color, text_value = self._scale(merged.get("text_color"))
         image, frame = merged.get("image"), 0
         if image and "{" in image:              # e.g. {vars.picture}: a picture sent with `hubdeck send image`
             image = self._template(image, value)
@@ -995,6 +1006,10 @@ class Engine:
             font_size=merged.get("font_size"),
             gauge=float(level) if gauge and known else None,
             gauge_known=not gauge or known,
+            text_color=(text_color.color_at(text_value) if text_value is not None
+                        else parse_color(text_color) if isinstance(text_color, str) else None),
+            fill=fill.fraction(fill_value) if fill_value is not None else None,
+            fill_colors=fill.colors(fill_value) if fill_value is not None else (),
             image=image,
             image_fit=merged.get("image_fit", "cover"),
             frame=frame,

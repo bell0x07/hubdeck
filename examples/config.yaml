@@ -79,8 +79,8 @@ pages:
         face: {icon: world, label: Icons}
       4:                                   # live text
         face: {text: "{system.time:%H:%M}", label: "{system.time:%a %d}"}
-      5:
-        face: {text: "{system.cpu:.0f}%", label: CPU}
+      5:                                   # CPU load: the background fills up with it, green to red
+        face: {text: "{system.cpu:.0f}%", label: CPU, fill: {state: system.cpu, color: ["#2e7d32", "#b07d00", "#b71c1c"]}}
       6:                                   # state-driven face
         action: {audio.toggle_mute: microphone}
         state: audio.mic_muted

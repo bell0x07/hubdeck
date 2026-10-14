@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Sequence
 
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 
@@ -33,6 +34,9 @@ class RenderFace:
     image: str | None = None      # source of the background image (the frame itself is passed to render)
     image_fit: str = "cover"
     frame: int = 0                # animation frame, so each frame gets its own cache entry
+    text_color: Color | None = None        # the text's colour; None = label_color
+    fill: float | None = None              # 0-1: the background filled from the bottom (None = no fill)
+    fill_colors: tuple[Color, ...] = ()    # the fill's colour, or a gradient from bottom to top
 
 
 ACCENT = "accent"            # colour name for the system accent colour (macOS, Windows), else hubdeck green
@@ -53,6 +57,15 @@ def accent_color() -> Color:
             pass        # keep the last colour we had
         _accent = (now, rgb)
     return rgb
+
+
+def gradient_at(colors: Sequence[Color], x: float) -> Color:
+    """The colour at `x` (0-1) along `colors`, spaced evenly."""
+    if len(colors) == 1:
+        return colors[0]
+    pos = max(0.0, min(1.0, x)) * (len(colors) - 1)
+    i = min(int(pos), len(colors) - 2)
+    return tuple(round(a + (b - a) * (pos - i)) for a, b in zip(colors[i], colors[i + 1]))
 
 
 def parse_color(value: str) -> Color:
@@ -117,6 +130,15 @@ def _draw_icon(d, face: RenderFace, center: tuple[float, float], size: int):
     d.text(center, chr(cp), font=tabler.font(size, face.filled), fill=face.fg, anchor="mm")
 
 
+def _draw_fill(d, face: RenderFace, s: int):
+    top = round(s * (1 - max(0.0, min(1.0, face.fill))))
+    if len(face.fill_colors) == 1:
+        d.rectangle([0, top, s, s], fill=face.fill_colors[0])
+        return
+    for y in range(top, s):                  # a gradient over the whole height: its top shows only when full
+        d.line([(0, y), (s, y)], fill=gradient_at(face.fill_colors, 1 - (y + 0.5) / s))
+
+
 GAUGE_START, GAUGE_SWEEP = 135, 270   # degrees (PIL: 0 = 3 o'clock, clockwise); gap at the bottom
 
 
@@ -142,7 +164,10 @@ def render(face: RenderFace, size: int = 72, rotate: int = 0, shape: str = "squa
     fixed = face.font_size * SUPERSAMPLE if face.font_size else None
     caption = face.label if face.label is not None else None
     body = face.text
+    body_color = face.text_color or face.label_color
 
+    if face.fill and face.fill_colors:
+        _draw_fill(d, face, s)
     if face.gauge is not None or not face.gauge_known:
         _draw_gauge(d, face, s)
     # content box: a centred square scaled down to clear a ring and/or a round panel's edge
@@ -162,16 +187,16 @@ def render(face: RenderFace, size: int = 72, rotate: int = 0, shape: str = "squa
         _draw_text(d, caption, at(0.5, 0.86), face.label_color, w * 0.92, w * 0.22, int(w * 0.18), fixed, outline)
     elif face.icon and (caption or body):
         _draw_icon(d, face, at(0.5, 0.40), int(w * 0.56))
-        _draw_text(d, caption or body, at(0.5, 0.84), face.label_color, w * 0.92, w * 0.24, int(w * 0.18), fixed,
-                   outline)
+        _draw_text(d, caption or body, at(0.5, 0.84), face.label_color if caption else body_color, w * 0.92,
+                   w * 0.24, int(w * 0.18), fixed, outline)
     elif face.icon:
         _draw_icon(d, face, at(0.5, 0.5), int(w * 0.74))
     elif body and caption:
-        _draw_text(d, body, at(0.5, 0.40), face.label_color, w * 0.90, w * 0.58, int(w * 0.42), fixed, outline)
+        _draw_text(d, body, at(0.5, 0.40), body_color, w * 0.90, w * 0.58, int(w * 0.42), fixed, outline)
         _draw_text(d, caption, at(0.5, 0.84), face.label_color, w * 0.92, w * 0.24, int(w * 0.18), None, outline)
     elif body or caption:
-        _draw_text(d, body or caption, at(0.5, 0.5), face.label_color, w * 0.88, w * 0.88, int(w * 0.42), fixed,
-                   outline)
+        _draw_text(d, body or caption, at(0.5, 0.5), body_color if body else face.label_color, w * 0.88, w * 0.88,
+                   int(w * 0.42), fixed, outline)
 
     img = img.resize((size, size), Image.LANCZOS)
     if rotate:
