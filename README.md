@@ -441,6 +441,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `spotify` | `volume_up`, `volume_down` (step in %, default 5), `set_volume` (0–100), `toggle_mute` / `mute` / `unmute` | `volume`, `muted`, `device` (where Spotify plays) | `volume` (Spotify's own slider, [setup](#spotify-setup)) |
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
+| `hwinfo` (Windows) | none | `value[label]`: a reading [HWiNFO](#hwinfo-setup) reports, e.g. `hwinfo.value[CPU (Tctl/Tdie)]` | none |
 | `ha` (Home Assistant) | `toggle`, `turn_on`, `turn_off` (an entity or a list), `call` (`{service: light.turn_on, entity: ..., data: {...}}`), `toggle_mute` (media players) | `connected`, `on[entity]`, `state[entity]`, `attr[entity:attribute]`, `today[entity]`, `month[entity]`, `today_above[entity:threshold]` | `level` (arg: an entity) |
 
 - **Media keys:** `play_pause`, `next`, `prev`, `stop`, `vol_up`, `vol_down` and `mute`.
@@ -687,6 +688,23 @@ pages:
   - Turning shows the new level straight away; hubdeck sends it at most 10 times a second per entity.
 - **Only the entities the config uses** are subscribed to. `deck.state("ha.state[sensor.x]")` in Python and `hubdeck send get` fetch any other one on first use, which waits up to 2 s.
 - **When Home Assistant can't be reached,** hubdeck retries every 5 s, and actions pressed meanwhile are dropped, not saved for later. A refused token isn't retried until the config changes.
+
+### HWiNFO setup
+
+Windows doesn't let apps read the CPU's temperature, fan speeds and most other sensors, but [HWiNFO](https://www.hwinfo.com) does, and shares the readings you pick through its Gadget feature (free, no time limit):
+
+1. In HWiNFO's **Settings**, tick **Sensors-only**, **Minimize Sensors on Startup** and **Auto Start**, so it runs from login.
+2. In its Sensors window, open **Configure › HWiNFO Gadget**, tick **Enable reporting to Gadget**, then select each reading you want and tick **Report value in Gadget**.
+3. Show a reading by its label in HWiNFO's Sensors window:
+
+```yaml
+keys:
+  5: {face: {text: "{hwinfo.value[CPU (Tctl/Tdie)]:.0f}°", label: CPU}}
+  6: {face: {text: "{hwinfo.value[CPU Package Power]:.0f} W", label: CPU}}
+```
+
+- A reading is unknown while HWiNFO doesn't run or doesn't report it. The log lists the labels it reports.
+- If two readings share a label, the first one in the Gadget list counts.
 
 ## Shortcuts, scripts and automation
 

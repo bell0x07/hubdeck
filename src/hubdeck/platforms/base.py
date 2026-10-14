@@ -192,6 +192,10 @@ class Platform(ABC):
     def media(self) -> MediaReader:
         raise Unsupported(f"reading what's playing is not supported on {self.name} yet")
 
+    def hwinfo(self) -> dict[str, float]:
+        """The readings HWiNFO reports to its Gadget, by label; empty while it reports none."""
+        raise Unsupported(f"HWiNFO is not supported on {self.name}")
+
     def run_with_event_loop(self, run: Callable[[], None], stop: Callable[[], None]):
         """Run `run` until it returns, with the OS's event loop going where it needs one
         (macOS: on the main thread, so the frontmost app stays current); `stop` ends it early."""

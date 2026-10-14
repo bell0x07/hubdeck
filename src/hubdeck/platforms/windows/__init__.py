@@ -17,6 +17,7 @@ RUN_VALUE = "hubdeck"
 MUTEX_NAME = "Local\\hubdeck-single-instance"
 ACCENT_KEY =r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"
 DWM_KEY = r"Software\Microsoft\Windows\DWM"
+HWINFO_KEY = r"Software\HWiNFO64\VSB"                        # HWiNFO's Gadget: LabelN, ValueRawN from N = 0
 
 
 def tray_exe() -> Path | None:
@@ -124,6 +125,24 @@ class WindowsPlatform(Platform):
     def media(self):
         from .media import WinMedia
         return WinMedia()
+
+    def hwinfo(self) -> dict[str, float]:
+        """The first reading of each label wins; HWiNFO writes the raw values with the
+        system's decimal separator."""
+        import winreg
+        out: dict[str, float] = {}
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, HWINFO_KEY) as key:
+                for n in range(1000):
+                    label, _ = winreg.QueryValueEx(key, f"Label{n}")
+                    raw, _ = winreg.QueryValueEx(key, f"ValueRaw{n}")
+                    try:
+                        out.setdefault(label, float(str(raw).replace(",", ".")))
+                    except ValueError:
+                        pass
+        except OSError:                                # no key, or past the last reading
+            pass
+        return out
 
     def accent_color(self) -> tuple[int, int, int] | None:
         """The accent colour from Settings > Personalization > Colors. AccentPalette holds 8

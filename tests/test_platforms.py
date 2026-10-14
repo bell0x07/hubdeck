@@ -523,6 +523,45 @@ def test_audio_app_volume_follows_the_focused_app(monkeypatch):
     assert "{app: <process name>}" in audio.AudioPlugin.check_action("mute", "headphones")
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows registry")
+def test_hwinfo_reads_the_gadget_values(monkeypatch):
+    import winreg
+    from hubdeck.platforms import windows
+    path = r"Software\hubdeck-test-hwinfo"
+    monkeypatch.setattr(windows, "HWINFO_KEY", path)
+    assert windows.WindowsPlatform().hwinfo() == {}                 # HWiNFO doesn't report
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, path) as key:
+        for n, (label, raw) in enumerate([("CPU (Tctl/Tdie)", "45,3"), ("Fan", "1200"), ("CPU (Tctl/Tdie)", "99"),
+                                          ("Odd", "n/a")]):
+            winreg.SetValueEx(key, f"Label{n}", 0, winreg.REG_SZ, label)
+            winreg.SetValueEx(key, f"ValueRaw{n}", 0, winreg.REG_SZ, raw)
+    try:
+        assert windows.WindowsPlatform().hwinfo() == {"CPU (Tctl/Tdie)": 45.3, "Fan": 1200.0}
+    finally:
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, path)
+
+
+def test_hwinfo_plugin_publishes_the_watched_labels(monkeypatch, caplog):
+    from hubdeck.plugins import hwinfo
+    from hubdeck.plugins.base import PluginContext
+    readings = {}
+    monkeypatch.setattr(hwinfo, "current", lambda: type("P", (), {"hwinfo": lambda self: dict(readings)})())
+    states = {}
+    plugin = hwinfo.HwinfoPlugin(PluginContext("hwinfo", lambda p, k, v: states.__setitem__(k, v)), {})
+    plugin.setup()
+    plugin.watch_states({("value", "CPU (Tctl/Tdie)"), ("value", "Pump")})
+    with caplog.at_level("WARNING", logger="hubdeck.hwinfo"):
+        plugin.tick()
+        plugin.tick()
+        assert states == {"value[CPU (Tctl/Tdie)]": None, "value[Pump]": None}
+        assert caplog.text.count("HWiNFO reports nothing") == 1
+        readings.update({"CPU (Tctl/Tdie)": 45.3, "Fan": 1200.0})
+        plugin.tick()
+        plugin.tick()
+    assert states == {"value[CPU (Tctl/Tdie)]": 45.3, "value[Pump]": None}
+    assert caplog.text.count("HWiNFO reports no 'Pump' (it reports: CPU (Tctl/Tdie), Fan)") == 1
+
+
 def _media_plugin(monkeypatch, reader):
     from hubdeck.plugins import media
     from hubdeck.plugins.base import PluginContext
