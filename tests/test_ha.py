@@ -1,11 +1,11 @@
 """Home Assistant plugin against a fake Home Assistant: a WebSocket server on localhost
 speaking the parts of the WebSocket API the plugin uses (auth, subscribe_entities,
-call_service, ping, statistics and history)."""
+call_service, ping, statistics)."""
 
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -13,7 +13,7 @@ from fakes.ws_server import FakeWsServer
 from hubdeck.config import ConfigError, load_config
 from hubdeck.plugins import ha as ha_mod
 from hubdeck.plugins.base import PluginContext
-from hubdeck.plugins.ha import HomeAssistantPlugin, is_active, plain_value, time_above, ws_url
+from hubdeck.plugins.ha import HomeAssistantPlugin, is_active, plain_value, ws_url
 from test_engine import make, wait_for
 
 TOKEN = "s3cret"
@@ -22,13 +22,11 @@ TOKEN = "s3cret"
 class FakeHA(FakeWsServer):
     """Entities live in `entities` ({entity: (state, attrs)}). Service calls are recorded in
     `calls` and answered with success, except services named fail.*. Hourly statistics are in
-    `statistics` ({entity: {hour's end: state}}), history in `history` ({entity: [(when, state)]}),
-    both in epoch seconds; their requests go to `queries`."""
+    `statistics` ({entity: {hour's end (epoch seconds): state}}); their requests go to `queries`."""
 
-    def __init__(self, entities=None, statistics=None, history=None, **kw):
+    def __init__(self, entities=None, statistics=None, **kw):
         self.entities = dict(entities or {})
         self.statistics = dict(statistics or {})
-        self.history = dict(history or {})
         self.queries: list[dict] = []
         self.calls: list[dict] = []
         self.subscriptions: list[list[str]] = []
@@ -68,10 +66,6 @@ class FakeHA(FakeWsServer):
                         for end, v in sorted(self.statistics[e].items()) if lo < end <= hi]
                     for e in msg["statistic_ids"] if e in self.statistics}
             self.send({"id": msg["id"], "type": "result", "success": True, "result": rows})
-        elif kind == "history/history_during_period":
-            self.queries.append(msg)
-            self.send({"id": msg["id"], "type": "result", "success": True, "result": {
-                e: [{"s": v, "lu": t} for t, v in self.history[e]] for e in msg["entity_ids"] if e in self.history}})
         elif kind == "ping" and self.answer_pings:
             self.send({"id": msg["id"], "type": "pong"})
 
@@ -187,8 +181,6 @@ def test_config_needs_url_and_token(write):
     ('{state: ha.on, face_on: {bg: red}}', "ha.on needs an entity id in brackets"),
     ('{state: "ha.connected[x]", face_on: {bg: red}}', "ha.connected takes no \\[argument\\]"),
     ('{face: {text: "{ha.today[energy]}"}}', "needs an entity id like light.desk"),
-    ('{face: {text: "{ha.today_above[sensor.power]:%H:%M}"}}', "needs entity_id:threshold"),
-    ('{face: {text: "{ha.today_above[sensor.power:lots]}"}}', "needs entity_id:threshold"),
 ])
 def test_bad_references_are_reported(write, key, error):
     with pytest.raises(ConfigError, match=error):
@@ -268,13 +260,7 @@ def test_missing_entities_are_warned_about_once(ha, monkeypatch, caplog):
     assert "light.desk" not in caplog.text
 
 
-# -- today, month, today_above --------------------------------------------------------
-def test_time_above_adds_up_the_time_above():
-    points = [(0.0, None), (10.0, True), (25.0, False), (30.0, True)]
-    assert time_above(points, 40.0) == timedelta(seconds=25)
-    assert time_above([(0.0, False)], 40.0) == timedelta(0)
-
-
+# -- today, month ----------------------------------------------------------------------
 def test_today_and_month_count_from_the_counter_at_their_start(ha):
     day, month = ha_mod.period_start("today"), ha_mod.period_start("month")
     stats = {month: 2533.5, day - 3600: 2569.0, day: 2569.5}
@@ -297,28 +283,6 @@ def test_today_asks_again_until_the_hour_before_midnight_has_its_statistic(ha, m
     h.wait("today[sensor.energy]", 3.0)                             # the hour before stands in
     h.fake.statistics["sensor.energy"][day] = 10.0
     h.wait("today[sensor.energy]", 2.0)
-
-
-def test_today_above_adds_up_today_then_follows_live(ha, monkeypatch):
-    now = time.time()
-    start = now - 7200
-    monkeypatch.setattr(ha_mod, "period_start", lambda name: start)
-    key = "today_above[sensor.power:130]"
-    history = [(start, "50"), (now - 600, "300"), (now - 300, "0"), (now - 120, "unavailable"), (now - 60, "250")]
-    h = ha({"sensor.power": ("250", {})}, states={("today_above", "sensor.power:130")},
-           history={"sensor.power": history})
-    wait_for(lambda: h.states.get(key) is not None)
-    assert 360 <= h.states[key].total_seconds() <= 362              # 300 s, then 60 s and counting
-    wait_for(lambda: h.states[key].total_seconds() >= 362)
-    h.fake.change("sensor.power", state="40")
-    wait_for(lambda: len(h.plugin._timelines["sensor.power:130"]) == 5)
-    stopped = h.states[key]
-    time.sleep(1.2)
-    assert h.states[key] == stopped
-    h.fake.change("sensor.power", state="400")
-    start = time.time() - 30                                        # a new day began 30 s ago
-    wait_for(lambda: 30 <= h.states[key].total_seconds() <= 32)
-    assert len(h.fake.queries) == 1                                 # live from there, no more history
 
 
 # -- actions ------------------------------------------------------------------------

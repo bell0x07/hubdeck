@@ -259,8 +259,6 @@ pages:
           - {state: {"ha.state[binary_sensor.bathroom_door]": "off"}, bg: "#c81e28", label: Busy}   # door closed
       8:                                   # an energy meter: kWh today, and this month below
         face: {text: "{ha.today[sensor.pc_plug_energy]:.2f}", label: "{ha.month[sensor.pc_plug_energy]:.0f} kWh"}
-      9:                                   # how long the PC ran today: its plug drew more than 100 W
-        face: {text: "{ha.today_above[sensor.pc_plug_power:100]:%H:%M}", label: PC on}
     dial:                                  # thermostat: one of its steps per click; press = on/off
       turn: {target: ha.level, arg: climate.living_room}
       action: {ha.toggle: climate.living_room}

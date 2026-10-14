@@ -4,8 +4,7 @@ plugins.ha takes `url` (Home Assistant's address, as in the browser) and `token`
 long-lived access token (Profile > Security). hubdeck subscribes only to the entities
 the config uses (subscribe_entities), plus those deck.state or hubdeck send get read,
 and Home Assistant pushes their changes. ha.today and ha.month subtract a counter's value
-at the start of the day or month, from Home Assistant's statistics; ha.today_above adds up
-today's history of an entity, then follows it live."""
+at the start of the day or month, from Home Assistant's statistics."""
 
 from __future__ import annotations
 
@@ -13,7 +12,7 @@ import math
 import re
 import time
 import urllib.parse
-from datetime import date, datetime, time as day_time, timedelta, timezone
+from datetime import date, datetime, time as day_time, timezone
 from typing import Any, Callable
 
 from ..net.websocket import WebSocket, WebSocketError
@@ -28,8 +27,8 @@ SETTLE_SECONDS = 2          # after hubdeck changes a level, Home Assistant's ol
 SEND_EVERY = 0.1            # seconds between level changes sent per entity; the last one always goes
 MISSING_AFTER = 2           # seconds after subscribing that an entity Home Assistant hasn't sent counts as missing
 WAIT_SECONDS = 2            # toggle_mute waits this long for the state of an entity nothing watched yet
-REFETCH_SECONDS = 60        # statistics and history asked again this often until Home Assistant has them
-PERIODS = ("today", "month", "today_above")   # states that count from the start of the day or month
+REFETCH_SECONDS = 60        # statistics asked again this often until Home Assistant has the one needed
+PERIODS = ("today", "month")   # states that count from the start of the day or month
 UNKNOWN = ("unavailable", "unknown")
 LEVEL_DOMAINS = ("light", "media_player", "cover", "fan", "climate", "number", "input_number")
 SETTINGS = ("url", "token", "verify_ssl")
@@ -169,12 +168,6 @@ def iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).isoformat()
 
 
-def time_above(points: list[tuple[float, bool | None]], until: float) -> timedelta:
-    """How long `points` (since, above the threshold?) were above it, up to `until`."""
-    ends = [t for t, _ in points[1:]] + [until]
-    return timedelta(seconds=int(sum(max(0.0, end - t) for (t, above), end in zip(points, ends) if above)))
-
-
 def _entities(arg: Any) -> list[str]:
     return [arg] if isinstance(arg, str) else list(arg or [])
 
@@ -209,10 +202,9 @@ class HomeAssistantPlugin(ThreadedPlugin):
         "attr": "one attribute of an entity: ha.attr[light.desk:brightness]",
         "today": "how much a counter (an energy meter) went up since midnight: ha.today[sensor.pc_energy]",
         "month": "how much a counter went up since the 1st of the month: ha.month[sensor.pc_energy]",
-        "today_above": "how long today an entity was above a number: ha.today_above[sensor.pc_power:100]",
     }
     state_args = {"on": "an entity id", "state": "an entity id", "attr": "entity_id:attribute",
-                  "today": "an entity id", "month": "an entity id", "today_above": "entity_id:threshold"}
+                  "today": "an entity id", "month": "an entity id"}
     values = {
         "level": "an entity's level 0-100 (arg: the entity): light brightness, media player volume, cover "
                  "position, fan speed, number value, climate target temperature",
@@ -244,7 +236,6 @@ class HomeAssistantPlugin(ThreadedPlugin):
         self._queries: dict[int, tuple[tuple[str, str], Callable[[dict], None]]] = {}   # id -> ((state, arg), on reply)
         self._next_ask: dict[tuple[str, str], float] = {}  # (state, arg) -> don't ask again before
         self._starts: dict[tuple[str, str], tuple[float | None, float | None]] = {}   # (today|month, entity) -> (period, value then)
-        self._timelines: dict[str, list[tuple[float, bool | None]]] = {}   # today_above arg -> [(since, above?)]
         self._refresh_at = 0.0
 
     # -- config checks ----------------------------------------------------
@@ -271,10 +262,6 @@ class HomeAssistantPlugin(ThreadedPlugin):
             return err
         if name in ("on", "state", "today", "month") and not ENTITY.fullmatch(arg):
             return f"ha.{name}[{arg}]: needs an entity id like light.desk"
-        if name == "today_above":
-            entity, _, threshold = arg.partition(":")
-            if not (ENTITY.fullmatch(entity) and _num(threshold) is not None):
-                return f"ha.today_above[{arg}]: needs entity_id:threshold, e.g. ha.today_above[sensor.pc_power:100]"
         if name == "attr":
             entity, _, attr = arg.partition(":")
             if not (ENTITY.fullmatch(entity) and attr):
@@ -406,7 +393,7 @@ class HomeAssistantPlugin(ThreadedPlugin):
         self._unsent.clear()
         self._waiting.clear()
         self._entities.clear()
-        for kept in (self._queries, self._next_ask, self._starts, self._timelines):
+        for kept in (self._queries, self._next_ask, self._starts):
             kept.clear()
         for key in self._published - {"connected"}:
             self.ctx.set_state(key, None)
@@ -456,17 +443,15 @@ class HomeAssistantPlugin(ThreadedPlugin):
 
     def _changed(self, event: dict):
         """Apply subscribe_entities' compressed states: a = added, c = changed (+/-), r = removed."""
-        changed, stamps = set(), {}                   # stamps: entity -> when its state changed
+        changed = set()
         for entity, st in (event.get("a") or {}).items():
             self._entities[entity] = {"s": st.get("s"), "a": dict(st.get("a") or {})}
             changed.add(entity)
-            stamps[entity] = st.get("lc") or st.get("lu")
         for entity, diff in (event.get("c") or {}).items():
             cur = self._entities.setdefault(entity, {"s": None, "a": {}})
             plus = diff.get("+") or {}
             if "s" in plus:
                 cur["s"] = plus["s"]
-                stamps[entity] = plus.get("lc") or plus.get("lu")
             cur["a"].update(plus.get("a") or {})
             for attr in (diff.get("-") or {}).get("a") or []:
                 cur["a"].pop(attr, None)
@@ -474,9 +459,6 @@ class HomeAssistantPlugin(ThreadedPlugin):
         for entity in event.get("r") or []:
             self._entities.pop(entity, None)
             changed.add(entity)
-            stamps[entity] = None
-        for entity, stamp in stamps.items():
-            self._track(entity, stamp or time.time())
         for entity in changed:
             self._publish(entity)
         for until, entity in list(self._waiting):
@@ -504,34 +486,22 @@ class HomeAssistantPlugin(ThreadedPlugin):
             elif name in ("today", "month"):
                 start, current = self._starts.get((name, arg), (None, None))[1], _num(state)
                 self._set(state_key(name, arg), None if start is None or current is None else current - start)
-            elif name == "today_above":
-                points = self._timelines.get(arg)
-                self._set(state_key(name, arg), None if points is None else time_above(points, time.time()))
         if ("level", entity) in self.watched:
             native = self._native(entity)
             self._set(value_state("level", entity), None if native is None else round(to_level(entity, native, attrs)))
             if domain_of(entity) == "media_player":
                 self._set(muted_state("level", entity), attrs.get("is_volume_muted") if st else None)
 
-    # -- today, month, today_above ------------------------------------------
+    # -- today, month -------------------------------------------------------
     def _refresh(self, now: float):
-        """Ask for the statistics and history the period states need, start a new day, and
-        republish today_above, which grows while the entity stays above."""
+        """Ask for the counter's value at the start of the day or month when it's new."""
         for name, arg in self.watched_states:
             if name not in PERIODS:
                 continue
-            key, start, entity = (name, arg), period_start(name), arg.partition(":")[0]
+            key, start = (name, arg), period_start(name)
             asked = now < self._next_ask.get(key, 0.0) or any(k == key for k, _ in self._queries.values())
-            if name == "today_above":
-                points = self._timelines.get(arg)
-                if points is None and not asked:
-                    self._ask_history(key, start)
-                elif points and points[0][0] < start:     # a new day: carry over where it stands
-                    above = [a for t, a in points if t <= start][-1]
-                    self._timelines[arg] = [(start, above)] + [p for p in points if p[0] > start]
-            elif self._starts.get(key, (None,))[0] != start and not asked:
+            if self._starts.get(key, (None,))[0] != start and not asked:
                 self._ask_start(key, start)
-            self._publish(entity)
 
     def _ask(self, key: tuple[str, str], msg: dict, then: Callable[[dict], None]):
         self._next_ask[key] = time.monotonic() + REFETCH_SECONDS
@@ -556,34 +526,6 @@ class HomeAssistantPlugin(ThreadedPlugin):
 
         self._ask(key, {"type": "recorder/statistics_during_period", "statistic_ids": [entity], "period": "hour",
                         "start_time": iso(start - 86400), "end_time": iso(start), "types": ["state"]}, then)
-
-    def _ask_history(self, key: tuple[str, str], start: float):
-        """Today's history of the entity, as when it went above and below the threshold."""
-        arg = key[1]
-        entity, _, threshold = arg.partition(":")
-
-        def then(result: dict):
-            points: list[tuple[float, bool | None]] = []
-            for st in result.get(entity) or []:
-                value = _num(st.get("s"))
-                above = None if value is None else value > float(threshold)
-                if not points or points[-1][1] != above:
-                    points.append((max(start, st.get("lu") or st.get("lc") or start), above))
-            self._timelines[arg] = points or [(start, None)]
-            self._track(entity, time.time())          # a change that arrived meanwhile
-            self._publish(entity)
-
-        self._ask(key, {"type": "history/history_during_period", "entity_ids": [entity], "start_time": iso(start),
-                        "minimal_response": True, "no_attributes": True, "significant_changes_only": False}, then)
-
-    def _track(self, entity: str, stamp: float):
-        """The entity's state goes into its today_above timelines, from `stamp` (epoch seconds) on."""
-        value = _num((self._entities.get(entity) or {}).get("s"))
-        for arg, points in self._timelines.items():
-            entity_of, _, threshold = arg.partition(":")
-            above = None if value is None else value > float(threshold)
-            if entity_of == entity and points[-1][1] != above:
-                points.append((max(stamp, points[-1][0]), above))
 
     def _native(self, entity: str) -> float | None:
         """The entity's level in its own unit: what hubdeck just set, else what Home Assistant says."""

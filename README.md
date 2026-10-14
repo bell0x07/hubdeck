@@ -442,7 +442,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
 | `hwinfo` (Windows) | none | `value[label]`: a reading [HWiNFO](#hwinfo-setup) reports, e.g. `hwinfo.value[CPU (Tctl/Tdie)]` | none |
-| `ha` (Home Assistant) | `toggle`, `turn_on`, `turn_off` (an entity or a list), `call` (`{service: light.turn_on, entity: ..., data: {...}}`), `toggle_mute` (media players) | `connected`, `on[entity]`, `state[entity]`, `attr[entity:attribute]`, `today[entity]`, `month[entity]`, `today_above[entity:threshold]` | `level` (arg: an entity) |
+| `ha` (Home Assistant) | `toggle`, `turn_on`, `turn_off` (an entity or a list), `call` (`{service: light.turn_on, entity: ..., data: {...}}`), `toggle_mute` (media players) | `connected`, `on[entity]`, `state[entity]`, `attr[entity:attribute]`, `today[entity]`, `month[entity]` | `level` (arg: an entity) |
 
 - **Media keys:** `play_pause`, `next`, `prev`, `stop`, `vol_up`, `vol_down` and `mute`.
 - **The computer:** `system.cpu`, `ram`, `vram` (GPU memory) and `disk` (the system drive) are in %, `gpu_temp` in °C, `gpu_power` in W, and `net_down` and `net_up` in Mbit/s over all adapters. `system.uptime` is the time since the computer started, `{system.uptime:%H:%M}`. The GPU values come from the first NVIDIA GPU, through its driver; without one they stay unknown.
@@ -680,7 +680,6 @@ pages:
   - `ha.state[entity]` is the state itself, as a number where it is one, so `{ha.state[sensor.x]:.1f}` works.
   - `ha.attr[entity:attribute]` is one attribute, such as `ha.attr[media_player.tv:media_title]`.
   - `ha.today[entity]` and `ha.month[entity]` are how much a counter, such as an energy meter's kWh, went up since midnight and since the 1st of the month: its state now, minus its state then. The start comes from Home Assistant's long-term statistics, so the entity needs a `state_class`, as energy sensors have.
-  - `ha.today_above[entity:threshold]` is how long today the entity's state was above the threshold, as a duration: `{ha.today_above[sensor.pc_power:100]:%H:%M}` shows how long a PC drew more than 100 W. It starts from today's history in Home Assistant, then follows the entity live.
   - They're unknown (`face_unknown`) while the entity is unavailable, or while Home Assistant can't be reached; `ha.connected` tells which.
   - Inside a one-line `{…}` mapping, quote them: `{state: "ha.on[light.desk]", …}`.
 - **`ha.level`** is an entity's level 0–100 for a Dial, knob, roller or fader: a light's brightness (0 turns it off, and turning up from off turns it on), a media player's volume (muted counts for `set_face(muted=…)`), a cover's position, a fan's speed, a `number` or `input_number` within its range, or a climate's target temperature within its range.
