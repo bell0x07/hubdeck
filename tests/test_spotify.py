@@ -112,6 +112,40 @@ def test_turns_set_spotifys_own_volume(fake, tmp_path):
     assert fake.volume == 25
 
 
+def test_reads_every_30_s_and_when_a_control_is_picked_up(fake, tmp_path, monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(time, "time", lambda: now[0])
+    p = plugin(tmp_path, {**LOGGED_IN, "obtained_at": now[0]})
+    def gets():
+        return sum(c[0] == "GET" for c in fake.calls)
+
+    p.tick()
+    now[0] += 29
+    p.tick()
+    assert gets() == 1
+    now[0] += 1
+    p.tick()
+    assert gets() == 2
+
+    fake.volume = 60                                               # changed in Spotify itself
+    p.adjust_value("volume", None, 2, 0)                           # picked up: reads first
+    now[0] += 1
+    p.adjust_value("volume", None, 2, 0)                           # still turning: no reads
+    assert gets() == 3 and fake.volume == 64
+
+    fake.fail[("GET", "/v1/me/player")] = (429, {"error": {"status": 429, "message": "Too many requests"}})
+    now[0] += 30
+    p.tick()                                                       # Retry-After: 7
+    sent = len(fake.calls)
+    now[0] += 3
+    p.adjust_value("volume", None, 2, 0)                           # blocked: nothing sent
+    assert len(fake.calls) == sent
+    del fake.fail[("GET", "/v1/me/player")]
+    now[0] += 5
+    p.adjust_value("volume", None, 2, 0)
+    assert fake.volume == 66
+
+
 def test_nothing_playing_has_no_volume(fake, tmp_path, caplog):
     fake.device = None
     p = plugin(tmp_path, {**LOGGED_IN, "obtained_at": time.time()})

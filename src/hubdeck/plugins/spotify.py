@@ -27,7 +27,8 @@ API = "https://api.spotify.com/v1"
 ACCOUNTS = "https://accounts.spotify.com"
 SCOPES = "user-read-playback-state user-modify-playback-state"
 REDIRECT_URI = "http://127.0.0.1:8973/callback"
-POLL_SECONDS = 2        # read the volume back this often, for changes made in Spotify itself
+POLL_SECONDS = 30       # read the volume back this often, for changes made in Spotify itself (every 2 s ran out the quota)
+PAUSE_SECONDS = 2       # a control used after this long a pause reads the volume first, so it starts from Spotify's own
 SETTLE_SECONDS = 2      # after a change, Spotify still reports the old volume for a moment
 LOGIN_SECONDS = 300     # how long the browser login may take
 UNMUTE_LEVEL = 50       # unmuting goes back to the last volume above 0, or this if there was none
@@ -237,7 +238,7 @@ class SpotifyPlugin(ThreadedPlugin):
         self.level: float | None = None
         self.unmuted = float(UNMUTE_LEVEL)     # the last volume above 0, for unmuting
         self.device: str | None = None
-        self.next_poll = self.settle_until = 0.0
+        self.next_poll = self.settle_until = self.blocked_until = self.last_used = 0.0
         self.last_error: str | None = None
         self.api = SpotifyAPI(str(self.config.get("client_id", "")),
                               str(self.config.get("redirect_uri") or REDIRECT_URI),
@@ -257,6 +258,7 @@ class SpotifyPlugin(ThreadedPlugin):
 
     def _fail(self, e: SpotifyError):
         if e.status == 429:
+            self.blocked_until = time.time() + e.retry_after
             self.next_poll = time.time() + max(e.retry_after, POLL_SECONDS)
         message = {
             "PREMIUM_REQUIRED": "Spotify only lets Premium accounts change the volume",
@@ -309,11 +311,15 @@ class SpotifyPlugin(ThreadedPlugin):
         if not self.api.logged_in:
             self.want_login = True
             return False
-        if self.level is None and time.time() >= self.next_poll:
+        now = time.time()
+        if now < self.blocked_until:            # Spotify's 429: nothing until its Retry-After is over
+            return False
+        if now - self.last_used > PAUSE_SECONDS:
             self._poll()
+        self.last_used = now
         if self.level is None and self.last_error is None:
             self._fail(SpotifyError("", reason="NO_ACTIVE_DEVICE"))
-        return self.level is not None
+        return self.level is not None and time.time() >= self.blocked_until
 
     def _set(self, level: float):
         self.level = max(0.0, min(100.0, level))
