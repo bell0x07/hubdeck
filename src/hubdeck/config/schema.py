@@ -737,20 +737,38 @@ class Config(_Model):
         kinds.update(kind for kind, _, _ in self.lighting.zones())
         return kinds
 
+    @staticmethod
+    def _def_state_refs(kd) -> set[tuple[str, str]]:
+        refs = set()
+        for state in kd.states():
+            refs.add(tuple(state_name(state).split(".", 1)))
+        for f in kd.faces():
+            for s in (f.text, f.label, f.image):
+                if s:
+                    refs.update((p, n) for p, n, _ in TEMPLATE_RE.findall(s))
+            refs.update(tuple(s.split(".", 1)) for s in f.states())
+        return refs
+
     def state_refs(self) -> set[tuple[str, str]]:
         refs = set()
         for _, kd in self.iter_defs():
-            for state in kd.states():
-                refs.add(tuple(state_name(state).split(".", 1)))
-            for f in kd.faces():
-                for s in (f.text, f.label, f.image):
-                    if s:
-                        refs.update((p, n) for p, n, _ in TEMPLATE_RE.findall(s))
-                refs.update(tuple(s.split(".", 1)) for s in f.states())
+            refs |= self._def_state_refs(kd)
         for _, _, zone in self.lighting.zones():
             if zone.state:
                 refs.add(tuple(state_name(zone.state).split(".", 1)))
         return refs
+
+    def page_plugins(self, page: str) -> set[str]:
+        """Plugins whose states or turn targets a page shows, in the sections it inherits too."""
+        defs = [*self.pages[page].keys.values(), *self.section(page, "knobs").values(),
+                *self.section(page, "rollers").values()]
+        if dial := self.section(page, "dial"):
+            defs.append(dial)
+        names = {p for d in defs for p, _ in self._def_state_refs(d)}
+        names.update(d.turn.target.split(".", 1)[0] for d in defs
+                     if isinstance(d, ControlDef) and d.turn and d.turn.target)
+        names.update(f.target.split(".", 1)[0] for f in self.section(page, "faders").values())
+        return names
 
     def used_plugins(self) -> set[str]:
         names = set(self.plugins)

@@ -631,6 +631,11 @@ class Engine:
             self._notify("page", self.current_page)
         if self.current_page != shown:
             self._page_hooks(shown, self.current_page)
+            for name in self.cfg.page_plugins(self.current_page) & self.plugins.keys():
+                try:
+                    self.plugins[name].page_shown()
+                except Exception:
+                    log.exception("plugin %s: page_shown failed", name)
 
     def _page_hooks(self, left: str | None, shown: str):
         """Run the on_page_exit actions of the page that went off screen, then the on_page_enter

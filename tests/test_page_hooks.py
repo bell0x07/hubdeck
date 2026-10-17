@@ -62,6 +62,29 @@ def test_python_in_a_hook_acts_on_its_own_page(write):
     assert eng.resolve_face(1).label == "Sub"                   # main's key untouched
 
 
+def test_plugins_hear_when_a_page_that_shows_them_comes_on(write):
+    eng, dev, clock = make(write, """
+        device: {reassert_seconds: 0}
+        pages:
+          main:
+            keys: {1: {action: {page: sub}, face: {label: Sub}}}
+          sub:
+            keys: {1: {action: page.back, face: {label: "{rec.value}"}}}
+    """)
+    shown = []
+    eng.plugins["rec"].page_shown = lambda: shown.append(eng.current_page)
+    tap(eng, dev, clock, 0)
+    tap(eng, dev, clock, 0)                                     # back to main, which shows nothing of rec
+    assert shown == ["sub"]
+
+    cfg = load_config(write("config.yaml", """
+        pages:
+          main: {knobs: {1: {turn: {target: rec.level}}}}
+          sub: {keys: {1: {face: {label: x}}}}
+    """))
+    assert cfg.page_plugins("sub") == {"rec"}                   # main's knobs, which sub inherits
+
+
 def test_hooks_are_checked_and_start_their_plugins(write):
     cfg = load_config(write("config.yaml", """
         pages:

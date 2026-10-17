@@ -490,7 +490,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
       turn: {target: audio.app_volume, arg: ms-teams.exe}
       action: {audio.toggle_mute: {app: ms-teams.exe}}
   ```
-- **Spotify's volume:** `spotify.volume` is the slider in the Spotify app. That's separate from Spotify's level in the Windows mixer, which `audio.app_volume` sets. It works through Spotify's Web API on whatever device Spotify plays on, including a phone or speaker, so it needs Spotify Premium and a [Spotify app](#spotify-setup). It's unknown while nothing plays on Spotify. hubdeck reads it back every 30 s, and when you pick up a Spotify control after a pause, so changes made in Spotify itself show too. Reading it more often runs out the quota Spotify gives your app. `spotify.toggle_mute` works like Spotify's own mute button: the volume goes to 0, and back to where it was on the next press.
+- **Spotify's volume:** `spotify.volume` is the slider in the Spotify app. That's separate from Spotify's level in the Windows mixer, which `audio.app_volume` sets. It works through Spotify's Web API on whatever device Spotify plays on, including a phone or speaker, so it needs Spotify Premium and a [Spotify app](#spotify-setup). It's unknown while nothing plays on Spotify. hubdeck reads it back every 30 s, when you pick up a Spotify control after a pause, and when a page that shows it comes on, so changes made in Spotify itself show too. Reading it more often runs out the quota Spotify gives your app. `spotify.toggle_mute` works like Spotify's own mute button: the volume goes to 0, and back to where it was on the next press.
 
   ```yaml
   knobs:

@@ -207,6 +207,7 @@ class SpotifyPlugin(ThreadedPlugin):
     values = {
         "volume": "Spotify's own volume 0-100, the slider in the Spotify app (not the Windows mixer's)",
     }
+    blocked_until = 0.0                        # a class default: page_shown may come before setup()
 
     @classmethod
     def check_config(cls, config):
@@ -238,7 +239,7 @@ class SpotifyPlugin(ThreadedPlugin):
         self.level: float | None = None
         self.unmuted = float(UNMUTE_LEVEL)     # the last volume above 0, for unmuting
         self.device: str | None = None
-        self.next_poll = self.settle_until = self.blocked_until = self.last_used = 0.0
+        self.next_poll = self.settle_until = self.last_used = 0.0
         self.last_error: str | None = None
         self.api = SpotifyAPI(str(self.config.get("client_id", "")),
                               str(self.config.get("redirect_uri") or REDIRECT_URI),
@@ -270,6 +271,9 @@ class SpotifyPlugin(ThreadedPlugin):
         if message != self.last_error:         # once, not on every poll
             self.log.warning("%s", message)
             self.last_error = message
+
+    def page_shown(self):                      # on the engine's thread: only moves the next read
+        self.next_poll = self.blocked_until    # now, or once Spotify's Retry-After is over
 
     def tick(self):
         if not self.api.logged_in:

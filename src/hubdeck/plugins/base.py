@@ -146,6 +146,9 @@ class Plugin:
         """Values the config shows/uses; publish them with set_state(value_state(name, arg), 0-100)."""
         self.watched = set(targets)
 
+    def page_shown(self):
+        """A page that shows this plugin's states or turn targets came on screen."""
+
     def adjust(self, name: str, arg: Any, delta: float, expo: float = 0.0):
         """Move a value by `delta` on the turn's expo curve: set it to adjusted(current, delta, expo)."""
         raise NotImplementedError
