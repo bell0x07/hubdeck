@@ -51,16 +51,26 @@ def gamma_rgb(rgb: Rgb, gamma: float) -> Rgb:
     return tuple(round(255 * (c / 255) ** gamma) for c in rgb)
 
 
-def resolve(zone: LightZone, state_get: Callable[[str], Any], value: Any, now: float,
-            gamma: float = 1.0) -> LedState:
-    """Desired LED state of one zone right now (gamma 1 = no correction)."""
+def _merged(zone: LightZone, overlay: str | None) -> Light:
+    """The zone's own fields with its `on` or `unknown` light on top."""
     fields = zone.model_dump(exclude_unset=True, exclude={"state", "on", "unknown"})
+    if overlay and getattr(zone, overlay) is not None:
+        fields.update(getattr(zone, overlay).model_dump(exclude_unset=True))
+    return Light.model_validate(fields)
+
+
+def resolve(zone: LightZone, state_get: Callable[[str], Any], value: Any, now: float,
+            gamma: float = 1.0, cache: dict | None = None) -> LedState:
+    """Desired LED state of one zone right now (gamma 1 = no correction). `cache` keeps the
+    merged lights by (id(zone), overlay); its owner keeps the zones alive."""
+    overlay = None
     if zone.state:
         v = state_on(zone.state, state_get)
-        overlay = zone.unknown if v is None else zone.on if v else None
-        if overlay is not None:
-            fields.update(overlay.model_dump(exclude_unset=True))
-    light = Light.model_validate(fields)
+        overlay = "unknown" if v is None else "on" if v else None
+    if cache is None:
+        light = _merged(zone, overlay)
+    elif (light := cache.get((id(zone), overlay))) is None:
+        light = cache[id(zone), overlay] = _merged(zone, overlay)
     mode, rgb = light.mode, parse_color(light.color) if light.color else None
     if light.animate:
         mode, rgb = "static", animate_color(light.animate, now)
@@ -83,6 +93,8 @@ class LightingController:
     def __init__(self):
         self.written: dict[tuple[str, int], LedState] = {}
         self._next_frame = 0.0
+        self._zones = None                 # the zones list self._lights belongs to
+        self._lights: dict = {}            # resolve()'s cache: pydantic merges at 30 fps cost ~0.5% of a core
 
     def forget(self, kind: str | None = None):
         """Rewrite everything (module reconnected / config changed)."""
@@ -95,12 +107,14 @@ class LightingController:
         if now < self._next_frame and not force:
             return []
         self._next_frame = now + FRAME_SECONDS
+        if zones is not self._zones:       # rebuilt: config reload or a runtime light change
+            self._zones, self._lights = zones, {}
         failed = []
         for kind, idx, zone in zones:
             dev = devices.get(kind)
             if dev is None or kind in failed:
                 continue
-            want = resolve(zone, state_get, value_for(kind, idx), now, gamma)
+            want = resolve(zone, state_get, value_for(kind, idx), now, gamma, self._lights)
             have = self.written.get((kind, idx), LedState())
             try:
                 mode_changed = want.mode is not None and want.mode != have.mode

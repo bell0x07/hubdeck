@@ -16,12 +16,15 @@ def test_color_alone_means_static():
     assert resolve(zone(color="red"), {}.get, None, 0) == LedState("static", (255, 0, 0), None)
 
 
-def test_state_overlay():
+@pytest.mark.parametrize("cache", [None, {}])
+def test_state_overlay(cache):
     z = zone(color="#3cc86e", state="rec.on", on={"color": "red", "mode": "breathing"},
              unknown={"color": "#202020"})
-    assert resolve(z, {"rec.on": True}.get, None, 0) == LedState("breathing", (255, 0, 0), None)
-    assert resolve(z, {"rec.on": False}.get, None, 0).rgb == (0x3C, 0xC8, 0x6E)
-    assert resolve(z, {}.get, None, 0).rgb == (0x20, 0x20, 0x20)
+    for _ in range(2):                                            # the second round from the cache
+        assert resolve(z, {"rec.on": True}.get, None, 0, cache=cache) == LedState("breathing", (255, 0, 0), None)
+        assert resolve(z, {"rec.on": False}.get, None, 0, cache=cache).rgb == (0x3C, 0xC8, 0x6E)
+        assert resolve(z, {}.get, None, 0, cache=cache).rgb == (0x20, 0x20, 0x20)
+    assert cache is None or len(cache) == 3
 
 
 def test_state_overlay_matching_a_value():
