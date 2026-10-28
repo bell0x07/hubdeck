@@ -17,21 +17,40 @@ class WinAudio(AudioBackend):
         from pycaw.pycaw import AudioUtilities
         comtypes.CoInitialize()
         self.au = AudioUtilities
+        self._enum = AudioUtilities.GetDeviceEnumerator()
+        self._props: dict[str, dict] = {}
         self._owners: dict[tuple[int, float], list[str]] = {}
 
     def close(self):
         import comtypes
+        self._enum = None                  # released before COM goes
         comtypes.CoUninitialize()
 
     def _endpoint(self, kind: str):
-        if kind == "microphone":
-            raw = self.au.GetMicrophone()  # pycaw returns the raw IMMDevice here, unlike GetSpeakers
-            dev = self.au.CreateDevice(raw) if raw is not None else None
-        else:
-            dev = self.au.GetSpeakers()
-        if dev is None:
+        """The default device. pycaw's GetSpeakers/CreateDevice read its whole property store,
+        which at several reads every 0.5 s kept a fifth of a core busy, so the properties are
+        read once per device.
+        shortcut: a device renamed in Sound settings keeps its old name until hubdeck restarts."""
+        from pycaw.constants import EDataFlow, ERole
+        from pycaw.utils import AudioDevice
+        flow = EDataFlow.eCapture if kind == "microphone" else EDataFlow.eRender
+        raw = self._enum.GetDefaultAudioEndpoint(flow.value, ERole.eMultimedia.value)
+        if not raw:
             raise OSError(f"no default {kind} device")
-        return dev
+        dev_id = raw.GetId()
+        if dev_id not in self._props:
+            self._props[dev_id] = self.au.CreateDevice(raw).properties
+        return AudioDevice(dev_id, None, self._props[dev_id], raw)
+
+    def _all_sessions(self):
+        """pycaw's GetAllSessions, on the cached device (it also goes through GetSpeakers)."""
+        from pycaw.api.audiopolicy import IAudioSessionControl2
+        from pycaw.utils import AudioSession
+        sessions = self._endpoint("speakers").AudioSessionManager.GetSessionEnumerator()
+        for i in range(sessions.GetCount()):
+            ctl = sessions.GetSession(i)
+            if ctl:
+                yield AudioSession(ctl.QueryInterface(IAudioSessionControl2))
 
     def get_volume(self, kind: str) -> float:
         return self._endpoint(kind).EndpointVolume.GetMasterVolumeLevelScalar() * 100
@@ -84,7 +103,7 @@ class WinAudio(AudioBackend):
         """Every app's session with its owner names, cached per process."""
         import psutil
         out, owners = [], {}
-        for s in self.au.GetAllSessions():
+        for s in self._all_sessions():
             proc = s.Process
             if proc is None:
                 continue

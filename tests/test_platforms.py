@@ -700,7 +700,7 @@ def test_windows_app_volume_includes_processes_the_app_started():
     webview, spotify = Session(proc(3, "msedgewebview2.exe", programs, teams, explorer), 0.5), \
         Session(proc(4, "Spotify.exe", programs, explorer), 0.9)
     audio = wa.WinAudio.__new__(wa.WinAudio)                  # no COM
-    audio.au, audio._owners = SimpleNamespace(GetAllSessions=lambda: [webview, spotify, Session(None, 1)]), {}
+    audio._all_sessions, audio._owners = lambda: [webview, spotify, Session(None, 1)], {}
 
     assert audio.get_app_volume("ms-teams.exe") == 50
     assert audio.get_app_volume("msedgewebview2") == 50       # still by its own name
