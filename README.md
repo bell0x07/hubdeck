@@ -9,7 +9,7 @@ A Stream-Deck-style controller for the whole **Cooler Master MasterHub** family:
 | **3 knobs, 2 rollers, 5 faders** | Volumes (system, microphone, per app) or any action, with knob and fader LEDs that can follow the value. |
 | **Base** | RGB lighting that reacts to state, for example red and breathing while you're muted. |
 
-Actions cover keystrokes, media keys, launching apps, system and per-app audio, Spotify's own volume, and Discord mute/deafen/hold-to-mute. Controls can be grouped into pages, which can follow the app you're using. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
+Actions cover keystrokes, media keys, launching apps, system and per-app audio, Spotify's own volume, Discord mute/deafen/hold-to-mute, and Microsoft Teams meeting controls. Controls can be grouped into pages, which can follow the app you're using. Everything lives in one YAML file and applies as soon as you save it. Modules can be plugged in, swapped or mounted rotated while hubdeck runs.
 
 It runs on **Windows** and **macOS**. This is an unofficial tool, tested with real hardware on Windows 11 and macOS. The protocol notes, with sources and what's verified, are in [docs/protocol/](docs/protocol/README.md).
 
@@ -482,6 +482,7 @@ Only `true` and `false` count as booleans, so `label: ON` stays text.
 | `media` (Windows) | none (the media keys are `{media: play_pause}` etc., from `keyboard`) | `playing`, `app`, `title`, `artist` (see below) | none |
 | `discord` | `toggle_mute`, `mute`, `unmute`, `toggle_deafen`, `deafen`, `undeafen`, `hold_mute_start`, `hold_mute_end` | `muted`, `deafened`, `holding`, `connected` | none |
 | `spotify` | `volume_up`, `volume_down` (step in %, default 5), `set_volume` (0–100), `toggle_mute` / `mute` / `unmute` | `volume`, `muted`, `device` (where Spotify plays) | `volume` (Spotify's own slider, [setup](#spotify-setup)) |
+| `teams` | `toggle_mute`, `mute`, `unmute`, `toggle_video`, `video_on`, `video_off`, `toggle_hand`, `toggle_blur`, `react` (`like`, `love`, `applause`, `laugh`, `wow`), `toggle_chat`, `stop_sharing`, `leave` | `in_meeting`, `muted`, `video_on`, `hand_raised`, `blurred`, `recording`, `sharing`, `unread`, `connected`, `paired` | none |
 | `vars` | `set` (`{vars.set: {mode: work}}`), `toggle` (`{vars.toggle: dnd}`) | any name you set, e.g. `vars.mode` | none |
 | `shortcuts` (macOS) | `run` (`{shortcuts.run: Lights off}` or `{name: ..., input: ...}`), `refresh` | one per output you define, e.g. `shortcuts.weather` | none |
 | `hwinfo` (Windows) | none | `value[label]`: a reading [HWiNFO](#hwinfo-setup) reports, e.g. `hwinfo.value[CPU (Tctl/Tdie)]` | none |
@@ -768,6 +769,27 @@ keys:
 - **`rambox.call`** calls any tool of Rambox's MCP server, with `args` as the tool takes them: `set_theme` (`{theme: dark}`), `concentration` (focus mode, pomodoro, ambient sounds), `open_section`, `window_state` and more. The log shows each tool's reply, and Rambox lists its tools to any MCP client.
 - Rambox doesn't share unread counts over MCP, so the plugin has no states.
 - When Rambox isn't running, or refuses the token, the log says so and the press does nothing.
+
+### Microsoft Teams setup
+
+The Teams plugin talks to the new Teams desktop app on the same computer, on Windows and macOS, through Teams' third-party app API.
+
+1. In Teams, open **Settings › Privacy**, click **Manage API** under *Third-party app API*, and turn on **Enable API**. If it's greyed out, your organisation has turned it off.
+2. Join a meeting (a call with yourself works) and press any Teams key. Teams asks whether to allow **hubdeck**: click **Allow**. Press the key again if nothing happened.
+
+Teams then hands hubdeck a token, which it keeps in `teams_token.json` in the hubdeck folder; to pair again, delete that file. Teams only reports a meeting's state while you're in one, so `teams.muted` and the others are unknown outside meetings: `face_unknown` sets the face for that time. A mute key with a red Base while muted:
+
+```yaml
+keys:
+  1:
+    action: teams.toggle_mute
+    state: teams.muted
+    face: {icon: microphone, label: LIVE}
+    face_on: {icon: microphone-off, label: MUTED, bg: "#c81e28"}
+    face_unknown: {icon: brand-teams, label: TEAMS}
+lighting:
+  base: {color: "#3cc86e", state: teams.muted, on: {color: "#c81e28", mode: breathing}}
+```
 
 ## Shortcuts, scripts and automation
 

@@ -12,10 +12,11 @@ from .rambox import RamboxPlugin
 from .shortcuts import ShortcutsPlugin
 from .spotify import SpotifyPlugin
 from .system import SystemPlugin
+from .teams import TeamsPlugin
 from .vars import VarsPlugin
 
 REGISTRY: dict[str, type[Plugin]] = {
-    p.name: p for p in (PagePlugin, KeyboardPlugin, LaunchPlugin, PythonPlugin, DiscordPlugin, AudioPlugin,
+    p.name: p for p in (PagePlugin, KeyboardPlugin, LaunchPlugin, PythonPlugin, DiscordPlugin, TeamsPlugin, AudioPlugin,
                         SystemPlugin, MediaPlugin, VarsPlugin, ShortcutsPlugin, SpotifyPlugin,
                         HomeAssistantPlugin, HwinfoPlugin, RamboxPlugin)
 }
