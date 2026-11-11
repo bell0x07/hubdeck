@@ -124,6 +124,10 @@ def check_references(cfg: Config) -> list[str]:
                 problems.append(f"{where}: {err}")
         if (kd.face_on or kd.face_unknown) and not kd.state:
             problems.append(f"{where}: face_on/face_unknown need a 'state' to switch on")
+    for where, display in cfg.iter_displays():
+        for ref in cfg.display_refs(display):
+            if err := check_state_ref(cfg, ref):
+                problems.append(f"{where}: {err}")
     problems += _check_actions(cfg, "auto_switch.on_focus", cfg.auto_switch.on_focus)
     for name, page in cfg.pages.items():
         for hook in ("on_page_enter", "on_page_exit"):
@@ -168,7 +172,7 @@ def _check_actions(cfg: Config, where: str, actions) -> list[str]:
 
 def _resolve_images(cfg: Config, base: Path) -> list[str]:
     """Make image paths absolute (relative = next to the config) and check they exist."""
-    from ..render.images import is_url
+    from ..render.images import is_url, slideshow_files
     problems = []
     for where, kd in cfg.iter_defs():
         for face in kd.faces():
@@ -179,6 +183,16 @@ def _resolve_images(cfg: Config, base: Path) -> list[str]:
                 if not p.is_file():
                     problems.append(f"{where}: image {face.image!r} not found ({p})")
                 face.image = str(p)
+    for where, display in cfg.iter_displays():
+        if display.image and not is_url(display.image):
+            p = Path(os.path.expandvars(display.image)).expanduser()
+            if not p.is_absolute():
+                p = base / p
+            if not p.exists():
+                problems.append(f"{where}: image {display.image!r} not found ({p})")
+            elif p.is_dir() and not slideshow_files(p):
+                problems.append(f"{where}: no pictures in the folder {display.image!r} ({p})")
+            display.image = str(p)
     return problems
 
 

@@ -16,6 +16,7 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
 - **`engine.py`** is the main loop:
   - manager events → gestures (`gestures.py`), turns and faders (soft takeover)
   - plugin states → faces (`render/faces.py`, `render/images.py`)
+  - a page's `display` (`render/display.py`): the 15 keys as one screen. `Engine.display_tiles()` makes its key pictures for the device and the editor's previews; charts record their states once a second (`_history`).
   - lighting (`lighting.py`), hot reload
   - switching pages by app: `_poll_focus` reads `focus_source.current` (a `focus.FocusWatcher`, started by `run()`; tests pass a fake), waits `FOCUS_SETTLE`, skips ignored windows and acts only when `Config.match_page` changes. `_saved_stack` holds the pages you opened yourself while an app's page is shown; `home` clears it. Engine-owned states (`page.auto/app/title`) go through `_set_state`.
   - `_set_pages` runs `_page_hooks` whenever the page on screen changes: the old page's `on_page_exit`, then the new one's `on_page_enter`. Their actions' source is `(page, None, None)`, so `deck.control` is None and the page default is the hook's page. Then the plugins whose states or turn targets the new page shows (`Config.page_plugins`, inherited sections included) get `page_shown()`, on the engine thread.
@@ -59,6 +60,10 @@ hubdeck controls the Cooler Master MasterHub modules on Windows and macOS: 15-ke
 - **Input frames** are `01 <tag> <len u16> <event> <len> data`. Tags: M0 `0x2a`, 15-key `0x34`, Dial `0x44`.
 - **Knob LED index = input index.** Default numbering is reading order: knobs 1 = top, 2 = bottom-left, 3 = bottom-right; rollers 1 = left. The Dial's turn byte is inverted compared with the knobs (`00` = clockwise).
 - **MasterHUB, including its elevated `MHDaemon`, fights over the modules.** It must be closed for hardware tests.
+- **15 keys as one display:**
+  - The bezel between key screens is about 22 px both ways.
+  - A full 15-key frame sends in about 36 ms (about 28 fps).
+  - Text across keys doesn't read, so a text display puts one letter per key (`docs/protocol/m4315.md`).
 
 ## Gotchas
 
